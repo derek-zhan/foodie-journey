@@ -34,7 +34,7 @@ export default function DiaryScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>Restaurant diary</Text>
+      <Text style={styles.header}>Foodie Journey</Text>
       <Button
         title={loading ? "Scanning…" : "Scan recent photos"}
         onPress={runScan}

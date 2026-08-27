@@ -1,4 +1,4 @@
-# Restaurant diary
+# Foodie Journey
 
 Iteration 1: detect restaurant visits from geotagged photos, journal them by
 voice, and browse them as a diary. No posting to Google Maps/Yelp yet — that's

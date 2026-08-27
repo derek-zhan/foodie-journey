@@ -1,7 +1,7 @@
 import * as SQLite from "expo-sqlite";
 import type { Visit } from "../types";
 
-const db = SQLite.openDatabaseSync("restaurant-diary.db");
+const db = SQLite.openDatabaseSync("foodie-journey.db");
 
 export function initDb() {
   db.execSync(`
