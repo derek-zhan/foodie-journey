@@ -18,7 +18,12 @@ Phone photo library
 
 Each stage lives in `src/pipeline/`:
 - `extractPhotoMetadata.ts` — reads the device photo library via `expo-media-library`
-- `resolvePlace.ts` — calls Google Places API (Nearby Search) to resolve coordinates to a restaurant
+- `resolvePlace.ts` — resolves coordinates to a restaurant. Prefers Google Places
+  (Nearby Search) when `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` is set; falls back to
+  `resolveOsmPlace.ts` (OpenStreetMap/Overpass — free, no key) when it isn't, or
+  when the Google call itself fails. OSM's restaurant coverage/metadata is
+  noticeably patchier than Google's outside dense cities — this is a
+  proof-of-concept fallback, not a claim of equivalent quality
 - `clusterVisits.ts` — groups photos into discrete visits by time + distance proximity
 - `journalVisit.ts` — turns a transcript into structured notes/tags/rating via the Claude API
 
@@ -39,7 +44,8 @@ UI: `src/screens/DiaryScreen.tsx` (timeline + journal entry) and `src/screens/As
 
 1. `npm install`
 2. Copy `.env.example` to `.env` and add:
-   - a Google Places API key (enable "Places API (New)" in Google Cloud Console)
+   - a Google Places API key (enable "Places API (New)" in Google Cloud Console) —
+     optional; without it, place resolution falls back to OpenStreetMap
    - an Anthropic API key (for journal structuring and diary Q&A)
 3. `npm start` — then open in Expo Go on your phone, or run `npm run ios` / `npm run android`
 

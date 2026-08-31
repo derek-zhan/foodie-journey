@@ -25,11 +25,12 @@ There is no lint or test tooling configured in this repo yet (no eslint,
 jest, or prettier config present) — don't assume `npm test` or `npm run
 lint` exist.
 
-Environment: copy `.env.example` to `.env` and set two keys —
-`EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` (requires "Places API (New)" enabled in
-Google Cloud Console) and `EXPO_PUBLIC_ANTHROPIC_API_KEY` (journal
-structuring + diary Q&A). Each is checked lazily by the function that needs
-it and throws if missing — there's no startup validation. Both are
+Environment: copy `.env.example` to `.env`. `EXPO_PUBLIC_ANTHROPIC_API_KEY`
+(journal structuring + diary Q&A) is checked lazily and throws if missing —
+no startup validation. `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` (requires "Places
+API (New)" enabled in Google Cloud Console) is optional — `resolvePlace.ts`
+falls back to OpenStreetMap/Overpass (no key) when it's unset or when the
+Google call fails; see `resolveOsmPlace.ts`. Both keys that exist are
 `EXPO_PUBLIC_*` and ship in the client bundle; see the caveat comment atop
 `journalVisit.ts`/`searchDiary.ts`. Diary search itself (`searchVisits` in
 `visitStore.ts`) needs no key at all — it's local SQLite FTS5, not an
@@ -54,8 +55,14 @@ clusterVisits (src/pipeline/clusterVisits.ts)
 resolvePlace (src/pipeline/resolvePlace.ts)
   → Google Places API "searchNearby" (New), restricted to FOOD_PLACE_TYPES
     (restaurant/cafe/bar/bakery/meal_takeaway/meal_delivery), 75m radius
-    to absorb GPS drift. Returns null (not an error) when nothing food-
-    related is nearby — clusterVisits relies on this to filter non-visits
+    to absorb GPS drift. Falls back to resolveOsmPlace (OpenStreetMap via
+    the public Overpass API, no key, same 75m radius) when no Google key
+    is configured or the Google call throws — a deliberately simple POC
+    fallback, not a real multi-provider abstraction. OSM elements can be
+    "way"s (buildings), which carry a `center` instead of `lat`/`lon` —
+    resolveOsmPlace handles both. Either path returns null (not an error)
+    when nothing food-related is nearby — clusterVisits relies on this to
+    filter non-visits
 
 journalVisit (src/pipeline/journalVisit.ts)
   → Claude API (`client.messages.parse` + a Zod `output_config.format`)
