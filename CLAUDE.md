@@ -15,7 +15,11 @@ full pipeline description and current build status.
 
 - `npm install` — install dependencies
 - `npm start` — start the Expo dev server (then open in Expo Go, or press i/a/w)
-- `npm run ios` / `npm run android` / `npm run web` — start and target a platform directly
+- `npm run ios` / `npm run android` — start and target a platform directly
+- `npm run web` — runs `scripts/webDev.js`, not `expo start --web` directly.
+  It fronts Metro with a small proxy on :8082 that adds cross-origin
+  isolation headers expo-sqlite's web backend needs — **open :8082, not
+  :8081**. See the comment at the top of that file for why.
 
 There is no lint or test tooling configured in this repo yet (no eslint,
 jest, or prettier config present) — don't assume `npm test` or `npm run
@@ -112,6 +116,25 @@ searchDiary.ts
 - Manual "confirm this visit" / correction UI — `Visit.confirmed` exists
   but is never set true
 - Posting drafted reviews externally (phase 2)
+
+## Development workflow
+
+`master` is branch-protected: no direct pushes, PRs required, CI
+(typecheck) must pass before merge. For every new feature or fix:
+
+1. Branch off `master`: `feature/<slug>` or `fix/<slug>`.
+2. Implement and commit on that branch.
+3. `npx tsc --noEmit` clean before opening the PR.
+4. Open the PR with `gh pr create` (the template in
+   `.github/pull_request_template.md` fills in automatically).
+5. Review before merging — there's no second human on this project, so
+   this means running the `code-review` skill against the branch/PR and
+   addressing what it finds, not skipping the step because it's solo.
+6. Once CI is green and review is done, squash-merge (`gh pr merge
+   --squash --delete-branch`) so `master` stays one commit per feature.
+
+Don't commit or push directly to `master` — even a one-line fix goes
+through a branch + PR so CI runs on it.
 
 ## Working in this codebase
 
