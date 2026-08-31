@@ -55,6 +55,14 @@ function searchableText(visit: Visit): string {
     .join(" ");
 }
 
+// "Journaled" = has notes OR tags. journalVisit's output schema doesn't
+// require non-empty notes (a response could carry tags with no notes
+// text), so gating on notes alone would silently drop a journaled-but-
+// notes-less visit from the search index.
+function isJournaled(visit: Visit): boolean {
+  return Boolean(visit.notes || visit.tags?.length);
+}
+
 export function upsertVisit(visit: Visit) {
   if (!db) {
     memoryVisits.set(visit.id, visit);
@@ -91,7 +99,7 @@ export function upsertVisit(visit: Visit) {
   // Re-sync the FTS row every time - simplest way to keep it correct as
   // notes/tags change across journal edits, and cheap at this data scale.
   db.runSync(`DELETE FROM visits_fts WHERE visitId = ?;`, [visit.id]);
-  if (visit.notes) {
+  if (isJournaled(visit)) {
     db.runSync(`INSERT INTO visits_fts (visitId, content) VALUES (?, ?);`, [
       visit.id,
       searchableText(visit),
@@ -99,17 +107,8 @@ export function upsertVisit(visit: Visit) {
   }
 }
 
-export function listVisits(): Visit[] {
-  if (!db) {
-    return Array.from(memoryVisits.values()).sort(
-      (a, b) => b.startedAt - a.startedAt
-    );
-  }
-
-  const rows = db.getAllSync<any>(
-    `SELECT * FROM visits ORDER BY startedAt DESC;`
-  );
-  return rows.map((row) => ({
+function rowToVisit(row: any): Visit {
+  return {
     id: row.id,
     place: {
       placeId: row.id.split("-")[0],
@@ -127,17 +126,34 @@ export function listVisits(): Visit[] {
     rating: row.rating ?? undefined,
     tags: JSON.parse(row.tags ?? "[]"),
     confirmed: !!row.confirmed,
-  }));
+  };
 }
 
-// Turns a raw user query into an FTS5 MATCH expression: strip each token
-// down to \w characters (so it can't be parsed as FTS5 query syntax - AND/
-// OR/NOT, *, -, quotes, etc.) then OR them together for recall. Returns
-// null for an empty/whitespace-only query.
+export function listVisits(): Visit[] {
+  if (!db) {
+    return Array.from(memoryVisits.values()).sort(
+      (a, b) => b.startedAt - a.startedAt
+    );
+  }
+
+  const rows = db.getAllSync<any>(
+    `SELECT * FROM visits ORDER BY startedAt DESC;`
+  );
+  return rows.map(rowToVisit);
+}
+
+// Turns a raw user query into an FTS5 MATCH expression: each token
+// double-quoted (an FTS5 string literal - AND/OR/NOT/*/-/: etc. inside one
+// are just literal text, not parsed as syntax) and OR'd together for
+// recall. The only character that can break out of a quoted literal is an
+// embedded `"`, so that's the only thing stripped - deliberately not a
+// \w-only filter, which would mangle accented or non-Latin text (café,
+// 拉面) that FTS5's default unicode61 tokenizer otherwise handles fine.
+// Returns null for an empty/whitespace-only query.
 function toFtsMatchQuery(query: string): string | null {
   const tokens = query
     .split(/\s+/)
-    .map((t) => t.replace(/[^\w]/g, ""))
+    .map((t) => t.replace(/"/g, ""))
     .filter(Boolean);
   if (tokens.length === 0) return null;
   return tokens.map((t) => `"${t}"`).join(" OR ");
@@ -147,13 +163,15 @@ function toFtsMatchQuery(query: string): string | null {
  * Full-text search over journaled visits (place name + notes + tags),
  * ranked by SQLite FTS5's bm25(). On web (in-memory fallback, no real
  * SQLite - see the comment above) this degrades to a plain keyword-overlap
- * scan over the same fields.
+ * scan over the same fields. Both paths only consider journaled visits
+ * (see isJournaled) so a bare scanned-but-unjournaled visit never matches.
  */
 export function searchVisits(query: string): Visit[] {
   if (!db) {
     const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
     if (tokens.length === 0) return [];
     return Array.from(memoryVisits.values())
+      .filter(isJournaled)
       .map((visit) => {
         const text = searchableText(visit).toLowerCase();
         return { visit, score: tokens.filter((t) => text.includes(t)).length };
@@ -169,12 +187,21 @@ export function searchVisits(query: string): Visit[] {
 
   // bm25() is more-negative-is-better in FTS5, so ascending order ranks
   // best matches first.
-  const rows = db.getAllSync<{ visitId: string }>(
+  const matches = db.getAllSync<{ visitId: string }>(
     `SELECT visitId FROM visits_fts WHERE visits_fts MATCH ? ORDER BY bm25(visits_fts) LIMIT ?;`,
     [matchQuery, SEARCH_LIMIT]
   );
-  const visitById = new Map(listVisits().map((v) => [v.id, v]));
-  return rows
-    .map((row) => visitById.get(row.visitId))
+  if (matches.length === 0) return [];
+
+  // Fetch only the matched rows (not the whole table) - the FTS index only
+  // pays off if this stays O(matches), not O(all visits).
+  const placeholders = matches.map(() => "?").join(", ");
+  const rows = db.getAllSync<any>(
+    `SELECT * FROM visits WHERE id IN (${placeholders});`,
+    matches.map((m) => m.visitId)
+  );
+  const visitById = new Map(rows.map((row) => [row.id, rowToVisit(row)]));
+  return matches
+    .map((m) => visitById.get(m.visitId))
     .filter((v): v is Visit => v != null);
 }
