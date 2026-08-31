@@ -140,14 +140,18 @@ this is a convention enforced by whoever/whatever is committing
 3. `npx tsc --noEmit` clean before opening the PR.
 4. Open the PR with `gh pr create` (the template in
    `.github/pull_request_template.md` fills in automatically).
-5. Review before merging — there's no second human on this project, so
-   this means running the `code-review` skill against the branch/PR and
-   addressing what it finds, not skipping the step because it's solo.
-6. Once CI is green and review is done, squash-merge (`gh pr merge
-   --squash --delete-branch`) so `master` stays one commit per feature.
+5. Once CI is green, squash-merge (`gh pr merge --squash --delete-branch`)
+   so `master` stays one commit per feature.
 
 Don't commit or push directly to `master` — even a one-line fix goes
 through a branch + PR so CI runs on it.
+
+**Prototyping-stage note:** the `code-review` skill pass before merging
+is skipped for now — it's thorough but expensive (multiple parallel
+sub-agents per PR), and at this stage "works, ship it, fix bugs as they
+turn up" is the right tradeoff over catching everything pre-merge. Revisit
+this once the app is past rough prototyping and bugs actually start
+costing real time to track down after the fact.
 
 ## Working in this codebase
 
