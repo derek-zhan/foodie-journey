@@ -164,6 +164,15 @@ function writeVisitRow(database: SQLite.SQLiteDatabase, visit: Visit) {
  * rating clearing out a previous one. Does NOT protect against blanking
  * notes/tags/rating/confirmed - for the photo-rescan path, where the
  * incoming Visit carries no journal info at all, use upsertScannedVisit.
+ *
+ * Also unlike upsertScannedVisit, this overwrites place/photoIds/
+ * startedAt/endedAt unconditionally - the DB no longer enforces those as
+ * write-once for this path (the old code got that for free by omitting
+ * the columns from the SQL SET clause; a full-column overwrite can't do
+ * that trick). Currently harmless because saveJournal always spreads a
+ * complete, freshly-listed Visit - but a future caller passing a partial
+ * or stale Visit here would silently overwrite those identity fields with
+ * no compiler or DB-level guard against it.
  */
 export function upsertVisit(visit: Visit) {
   if (!db) {
