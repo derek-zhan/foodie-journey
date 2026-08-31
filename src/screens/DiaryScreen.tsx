@@ -9,7 +9,7 @@ import {
   TextInput,
 } from "react-native";
 import type { Visit } from "../types";
-import { listVisits, upsertVisit } from "../db/visitStore";
+import { listVisits, upsertScannedVisit, upsertVisit } from "../db/visitStore";
 import { extractPhotoMetadata } from "../pipeline/extractPhotoMetadata";
 import { clusterVisits } from "../pipeline/clusterVisits";
 import { journalVisit } from "../pipeline/journalVisit";
@@ -63,7 +63,7 @@ export default function DiaryScreen() {
       const photos = await extractPhotoMetadata(since);
       const detected = await clusterVisits(photos);
 
-      detected.forEach(upsertVisit);
+      detected.forEach(upsertScannedVisit);
       setVisits(listVisits());
     } catch (err: any) {
       Alert.alert("Scan failed", err.message ?? String(err));

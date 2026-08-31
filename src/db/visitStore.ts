@@ -39,14 +39,39 @@ export function initDb() {
   // + tags) - powers rag/searchDiary.ts's retrieval step, entirely local
   // (no embeddings, no external API). expo-sqlite ships FTS5 enabled by
   // default on both iOS and Android. Kept as its own virtual table and
-  // resynced on every upsertVisit (see below) rather than a visits column,
-  // so "what's searchable" stays in one place.
+  // resynced on every write rather than a visits column, so "what's
+  // searchable" stays in one place.
   db.execSync(`
     CREATE VIRTUAL TABLE IF NOT EXISTS visits_fts USING fts5(
       visitId UNINDEXED,
       content
     );
   `);
+
+  backfillFtsIndex(db);
+}
+
+// One-time-per-launch catch-up: a visits_fts row only gets written by
+// writeVisitRow, so any visit that was already journaled before this
+// virtual table existed (or before any particular row was last touched)
+// would otherwise be invisible to search forever, even though it's right
+// there in `visits`. Cheap at personal-diary scale; only inserts what's
+// actually missing.
+function backfillFtsIndex(database: SQLite.SQLiteDatabase) {
+  const indexed = new Set(
+    database
+      .getAllSync<{ visitId: string }>(`SELECT visitId FROM visits_fts;`)
+      .map((r) => r.visitId)
+  );
+  const rows = database.getAllSync<any>(`SELECT * FROM visits;`);
+  for (const row of rows) {
+    const visit = rowToVisit(row);
+    if (indexed.has(visit.id) || !isJournaled(visit)) continue;
+    database.runSync(
+      `INSERT INTO visits_fts (visitId, content) VALUES (?, ?);`,
+      [visit.id, searchableText(visit)]
+    );
+  }
 }
 
 function searchableText(visit: Visit): string {
@@ -61,75 +86,6 @@ function searchableText(visit: Visit): string {
 // notes-less visit from the search index.
 function isJournaled(visit: Visit): boolean {
   return Boolean(visit.notes || visit.tags?.length);
-}
-
-// DiaryScreen's "Scan recent photos" re-upserts every visit clusterVisits
-// re-detects in the window, including ones already journaled - and a
-// freshly-clustered Visit has no transcript/notes/rating/tags at all (see
-// clusterVisits.ts). Without this merge, that re-scan would blindly
-// overwrite (SQL) or replace (web) an existing journal entry with blanks.
-function mergeJournalFields(incoming: Visit, existing: Visit | null): Visit {
-  if (!existing) return incoming;
-  return {
-    ...incoming,
-    transcript: incoming.transcript ?? existing.transcript,
-    notes: incoming.notes ?? existing.notes,
-    rating: incoming.rating ?? existing.rating,
-    tags: incoming.tags ?? existing.tags,
-  };
-}
-
-export function upsertVisit(visit: Visit) {
-  if (!db) {
-    memoryVisits.set(visit.id, mergeJournalFields(visit, memoryVisits.get(visit.id) ?? null));
-    return;
-  }
-
-  db.withTransactionSync(() => {
-    db.runSync(
-      `INSERT INTO visits
-        (id, placeName, address, latitude, longitude, photoIds, startedAt, endedAt, transcript, notes, rating, tags, confirmed)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-        transcript=COALESCE(excluded.transcript, visits.transcript),
-        notes=COALESCE(excluded.notes, visits.notes),
-        rating=COALESCE(excluded.rating, visits.rating),
-        tags=COALESCE(excluded.tags, visits.tags),
-        confirmed=excluded.confirmed;`,
-      [
-        visit.id,
-        visit.place.name,
-        visit.place.address,
-        visit.place.latitude,
-        visit.place.longitude,
-        JSON.stringify(visit.photoIds),
-        visit.startedAt,
-        visit.endedAt,
-        visit.transcript ?? null,
-        visit.notes ?? null,
-        visit.rating ?? null,
-        visit.tags ? JSON.stringify(visit.tags) : null,
-        visit.confirmed ? 1 : 0,
-      ]
-    );
-
-    // Re-sync the FTS row from what's now actually persisted, not the raw
-    // `visit` param - a re-scan's blank incoming fields were just merged
-    // against the existing row above (COALESCE), and the FTS content has
-    // to reflect that merge, not the pre-merge input.
-    const row = db.getFirstSync<any>(`SELECT * FROM visits WHERE id = ?;`, [
-      visit.id,
-    ]);
-    const persisted = row ? rowToVisit(row) : visit;
-
-    db.runSync(`DELETE FROM visits_fts WHERE visitId = ?;`, [visit.id]);
-    if (isJournaled(persisted)) {
-      db.runSync(`INSERT INTO visits_fts (visitId, content) VALUES (?, ?);`, [
-        visit.id,
-        searchableText(persisted),
-      ]);
-    }
-  });
 }
 
 function rowToVisit(row: any): Visit {
@@ -154,6 +110,112 @@ function rowToVisit(row: any): Visit {
   };
 }
 
+// Writes exactly the given Visit - no merging. Also resyncs the FTS row
+// from that same value (no extra read needed: it IS what's being
+// persisted). Shared by upsertVisit and upsertScannedVisit below, once
+// each has decided what the final value should be.
+function writeVisitRow(database: SQLite.SQLiteDatabase, visit: Visit) {
+  database.runSync(
+    `INSERT INTO visits
+      (id, placeName, address, latitude, longitude, photoIds, startedAt, endedAt, transcript, notes, rating, tags, confirmed)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+      placeName=excluded.placeName,
+      address=excluded.address,
+      latitude=excluded.latitude,
+      longitude=excluded.longitude,
+      photoIds=excluded.photoIds,
+      startedAt=excluded.startedAt,
+      endedAt=excluded.endedAt,
+      transcript=excluded.transcript,
+      notes=excluded.notes,
+      rating=excluded.rating,
+      tags=excluded.tags,
+      confirmed=excluded.confirmed;`,
+    [
+      visit.id,
+      visit.place.name,
+      visit.place.address,
+      visit.place.latitude,
+      visit.place.longitude,
+      JSON.stringify(visit.photoIds),
+      visit.startedAt,
+      visit.endedAt,
+      visit.transcript ?? null,
+      visit.notes ?? null,
+      visit.rating ?? null,
+      visit.tags ? JSON.stringify(visit.tags) : null,
+      visit.confirmed ? 1 : 0,
+    ]
+  );
+
+  database.runSync(`DELETE FROM visits_fts WHERE visitId = ?;`, [visit.id]);
+  if (isJournaled(visit)) {
+    database.runSync(
+      `INSERT INTO visits_fts (visitId, content) VALUES (?, ?);`,
+      [visit.id, searchableText(visit)]
+    );
+  }
+}
+
+/**
+ * Deliberate write of exactly what's passed - e.g. DiaryScreen.saveJournal
+ * saving a fresh journalVisit() result, including a legitimately-absent
+ * rating clearing out a previous one. Does NOT protect against blanking
+ * notes/tags/rating/confirmed - for the photo-rescan path, where the
+ * incoming Visit carries no journal info at all, use upsertScannedVisit.
+ */
+export function upsertVisit(visit: Visit) {
+  if (!db) {
+    memoryVisits.set(visit.id, visit);
+    return;
+  }
+  db.withTransactionSync(() => writeVisitRow(db, visit));
+}
+
+// Re-scan = never let it clobber an existing journal entry or the
+// place/photo/time identity it was created with (both write-once, same
+// as the original pre-FTS5 design - just enforced in JS now instead of
+// via SQL's "omit the column from SET" trick). `confirmed` is sticky
+// (OR'd, not overwritten) for the same reason: a fresh clusterVisits()
+// result always has confirmed: false.
+function mergeRescannedVisit(incoming: Visit, existing: Visit | null): Visit {
+  if (!existing) return incoming;
+  return {
+    ...incoming,
+    place: existing.place,
+    photoIds: existing.photoIds,
+    startedAt: existing.startedAt,
+    endedAt: existing.endedAt,
+    transcript: incoming.transcript ?? existing.transcript,
+    notes: incoming.notes ?? existing.notes,
+    rating: incoming.rating ?? existing.rating,
+    tags: incoming.tags ?? existing.tags,
+    confirmed: incoming.confirmed || existing.confirmed,
+  };
+}
+
+/**
+ * Used only by DiaryScreen.runScan's re-detection loop. clusterVisits()
+ * always produces a Visit with no journal fields at all, so a plain
+ * upsertVisit here would silently wipe an existing journal entry - this
+ * merges against any existing row first. See mergeRescannedVisit.
+ */
+export function upsertScannedVisit(visit: Visit) {
+  if (!db) {
+    const merged = mergeRescannedVisit(visit, memoryVisits.get(visit.id) ?? null);
+    memoryVisits.set(visit.id, merged);
+    return;
+  }
+  db.withTransactionSync(() => {
+    const row = db.getFirstSync<any>(`SELECT * FROM visits WHERE id = ?;`, [
+      visit.id,
+    ]);
+    const merged = mergeRescannedVisit(visit, row ? rowToVisit(row) : null);
+    writeVisitRow(db, merged);
+  });
+}
+
 export function listVisits(): Visit[] {
   if (!db) {
     return Array.from(memoryVisits.values()).sort(
@@ -176,12 +238,18 @@ export function listVisits(): Visit[] {
 // 拉面) that FTS5's default unicode61 tokenizer otherwise handles fine.
 // Returns null for an empty/whitespace-only query.
 function toFtsMatchQuery(query: string): string | null {
-  const tokens = query
-    .split(/\s+/)
+  const tokens = tokenize(query)
     .map((t) => t.replace(/"/g, ""))
     .filter(Boolean);
   if (tokens.length === 0) return null;
   return tokens.map((t) => `"${t}"`).join(" OR ");
+}
+
+// Shared by the native FTS5 query builder and the web keyword-overlap
+// fallback below - both need "split into meaningful words", they just do
+// different things with the result afterwards.
+function tokenize(query: string): string[] {
+  return query.split(/\s+/).filter(Boolean);
 }
 
 /**
@@ -193,7 +261,7 @@ function toFtsMatchQuery(query: string): string | null {
  */
 export function searchVisits(query: string): Visit[] {
   if (!db) {
-    const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+    const tokens = tokenize(query.toLowerCase());
     if (tokens.length === 0) return [];
     return Array.from(memoryVisits.values())
       .filter(isJournaled)

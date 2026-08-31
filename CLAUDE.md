@@ -66,16 +66,26 @@ journalVisit (src/pipeline/journalVisit.ts)
 
 visitStore (src/db/visitStore.ts)
   → SQLite (expo-sqlite, synchronous API). initDb() creates the visits
-    table if missing, plus a visits_fts FTS5 virtual table (see below).
-    upsertVisit does INSERT ... ON CONFLICT DO UPDATE, but the update
-    clause only touches the user-editable fields (transcript, notes,
-    rating, tags, confirmed) — place/photo/time fields are write-once
-    per visit id. Visit ids are `${placeId}-${firstPhotoTimestamp}`, and
-    listVisits() reverse-engineers placeId from that composite id rather
-    than storing it separately — keep that in sync if the id format ever
-    changes. On web (in-memory fallback, no real SQLite — see the
-    Platform.OS guard at the top of the file) there's no FTS5 either;
-    searchVisits() degrades to a plain keyword-overlap scan there
+    table and a visits_fts FTS5 virtual table if missing (see below), then
+    backfills any pre-existing journaled visit that predates the index.
+    Two write entry points, deliberately not one — see the comment on
+    mergeRescannedVisit for why:
+      • upsertVisit(visit) — writes exactly what's passed, full overwrite.
+        Used by DiaryScreen.saveJournal for deliberate journal edits,
+        where an absent field (e.g. Claude giving no rating this time)
+        should genuinely clear the old value, not preserve it.
+      • upsertScannedVisit(visit) — merges against any existing row first
+        (mergeRescannedVisit) before writing. Used only by DiaryScreen.
+        runScan's re-detection loop, where clusterVisits() always
+        produces a Visit with no journal fields at all; place/photoIds/
+        startedAt/endedAt are write-once and `confirmed` is sticky (OR,
+        not overwrite) across a re-scan for the same reason.
+    Visit ids are `${placeId}-${firstPhotoTimestamp}`, and listVisits()
+    reverse-engineers placeId from that composite id rather than storing
+    it separately — keep that in sync if the id format ever changes. On
+    web (in-memory fallback, no real SQLite — see the Platform.OS guard
+    at the top of the file) there's no FTS5 either; searchVisits()
+    degrades to a plain keyword-overlap scan there
 ```
 
 `Visit` and its sub-types (`PhotoAsset`, `ResolvedPlace`) are the shared
@@ -90,8 +100,9 @@ UI).
 
 A visit only becomes searchable once it's journaled — the FTS5 index is
 derived from the journaled `notes`/`tags`, not the raw photos/transcript,
-and is resynced inside `upsertVisit` (visitStore.ts) every time a visit is
-saved, including from `DiaryScreen.saveJournal` right after `journalVisit`
+and is resynced by `writeVisitRow` (visitStore.ts, shared by both
+`upsertVisit` and `upsertScannedVisit`) every time a visit is written,
+including from `DiaryScreen.saveJournal` right after `journalVisit`
 returns.
 
 ```
