@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.122.0",
     "expo": "~57.0.17",
     "expo-av": "^16.0.8",
     "expo-file-system": "^57.0.6",
@@ -10,7 +11,8 @@
     "expo-sqlite": "^57.0.2",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
-    "react-native": "0.86.3"
+    "react-native": "0.86.3",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",

@@ -1,18 +1,66 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, FlatList, StyleSheet, Button, Alert } from "react-native";
+import {
+  View,
+  Text,
+  FlatList,
+  StyleSheet,
+  Button,
+  Alert,
+  TextInput,
+} from "react-native";
 import type { Visit } from "../types";
-import { initDb, listVisits, upsertVisit } from "../db/visitStore";
+import { listVisits, upsertVisit } from "../db/visitStore";
+import { upsertVisitEmbedding } from "../db/embeddingStore";
 import { extractPhotoMetadata } from "../pipeline/extractPhotoMetadata";
 import { clusterVisits } from "../pipeline/clusterVisits";
+import { journalVisit } from "../pipeline/journalVisit";
+import { EMBEDDING_MODEL, embedText } from "../rag/embeddings";
 
 export default function DiaryScreen() {
   const [visits, setVisits] = useState<Visit[]>([]);
   const [loading, setLoading] = useState(false);
+  const [journalingId, setJournalingId] = useState<string | null>(null);
+  const [transcriptDraft, setTranscriptDraft] = useState("");
+  const [savingId, setSavingId] = useState<string | null>(null);
 
   useEffect(() => {
-    initDb();
     setVisits(listVisits());
   }, []);
+
+  function startJournaling(visit: Visit) {
+    setJournalingId(visit.id);
+    setTranscriptDraft(visit.transcript ?? "");
+  }
+
+  async function saveJournal(visit: Visit) {
+    if (!transcriptDraft.trim()) return;
+    setSavingId(visit.id);
+    try {
+      const entry = await journalVisit(transcriptDraft, visit.place.name);
+      const updated: Visit = {
+        ...visit,
+        transcript: transcriptDraft,
+        notes: entry.notes,
+        tags: entry.tags,
+        rating: entry.rating,
+      };
+      upsertVisit(updated);
+
+      // Re-embed on every save so the diary stays searchable as notes change.
+      const embedding = await embedText(
+        `${updated.place.name}. ${entry.notes} Tags: ${entry.tags.join(", ")}`,
+        "document"
+      );
+      upsertVisitEmbedding(updated.id, embedding, EMBEDDING_MODEL);
+
+      setVisits(listVisits());
+      setJournalingId(null);
+    } catch (err: any) {
+      Alert.alert("Journal failed", err.message ?? String(err));
+    } finally {
+      setSavingId(null);
+    }
+  }
 
   async function runScan() {
     setLoading(true);
@@ -53,6 +101,31 @@ export default function DiaryScreen() {
               {item.photoIds.length === 1 ? "" : "s"}
             </Text>
             {item.notes ? <Text>{item.notes}</Text> : null}
+            {item.tags?.length ? (
+              <Text style={styles.tags}>{item.tags.join(" · ")}</Text>
+            ) : null}
+
+            {journalingId === item.id ? (
+              <View style={styles.journalForm}>
+                <TextInput
+                  style={styles.input}
+                  multiline
+                  placeholder="What did you think? (paste/type a transcript)"
+                  value={transcriptDraft}
+                  onChangeText={setTranscriptDraft}
+                />
+                <Button
+                  title={savingId === item.id ? "Saving…" : "Save journal entry"}
+                  onPress={() => saveJournal(item)}
+                  disabled={savingId === item.id}
+                />
+              </View>
+            ) : (
+              <Button
+                title={item.notes ? "Edit journal entry" : "Add journal entry"}
+                onPress={() => startJournaling(item)}
+              />
+            )}
           </View>
         )}
         ListEmptyComponent={
@@ -67,7 +140,7 @@ export default function DiaryScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingTop: 60, paddingHorizontal: 16 },
+  container: { flex: 1, paddingTop: 16, paddingHorizontal: 16 },
   header: { fontSize: 22, fontWeight: "600", marginBottom: 12 },
   list: { marginTop: 16 },
   card: {
@@ -78,5 +151,14 @@ const styles = StyleSheet.create({
   },
   place: { fontSize: 16, fontWeight: "600" },
   meta: { fontSize: 13, color: "#666", marginTop: 2 },
+  tags: { fontSize: 12, color: "#888", marginTop: 4 },
+  journalForm: { marginTop: 8, gap: 8 },
+  input: {
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    padding: 10,
+    minHeight: 60,
+    textAlignVertical: "top",
+  },
   empty: { textAlign: "center", color: "#888", marginTop: 40 },
 });

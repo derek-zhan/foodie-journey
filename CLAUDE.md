@@ -21,9 +21,13 @@ There is no lint or test tooling configured in this repo yet (no eslint,
 jest, or prettier config present) — don't assume `npm test` or `npm run
 lint` exist.
 
-Environment: copy `.env.example` to `.env` and set
+Environment: copy `.env.example` to `.env` and set three keys —
 `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` (requires "Places API (New)" enabled in
-Google Cloud Console). Without it, `resolvePlace` throws immediately.
+Google Cloud Console), `EXPO_PUBLIC_ANTHROPIC_API_KEY` (journal structuring +
+diary Q&A), `EXPO_PUBLIC_VOYAGE_API_KEY` (diary search embeddings). Each is
+checked lazily by the function that needs it and throws if missing — there's
+no startup validation. All three are `EXPO_PUBLIC_*` and ship in the client
+bundle; see the caveat comment atop `journalVisit.ts`/`searchDiary.ts`.
 
 ## Architecture
 
@@ -47,6 +51,13 @@ resolvePlace (src/pipeline/resolvePlace.ts)
     to absorb GPS drift. Returns null (not an error) when nothing food-
     related is nearby — clusterVisits relies on this to filter non-visits
 
+journalVisit (src/pipeline/journalVisit.ts)
+  → Claude API (`client.messages.parse` + a Zod `output_config.format`)
+    turns a raw transcript into {notes, tags, rating}. Speech-to-text
+    capture itself isn't wired up — DiaryScreen collects the transcript
+    via a plain TextInput, so this stage is really just the "LLM
+    structuring" half of the voice journal step
+
 visitStore (src/db/visitStore.ts)
   → SQLite (expo-sqlite, synchronous API). initDb() creates the table if
     missing; upsertVisit does INSERT ... ON CONFLICT DO UPDATE, but the
@@ -61,14 +72,43 @@ visitStore (src/db/visitStore.ts)
 `Visit` and its sub-types (`PhotoAsset`, `ResolvedPlace`) are the shared
 data model, defined once in `src/types/index.ts`.
 
-`DiaryScreen` is currently the app's only screen (`App.tsx` renders it
-directly, no navigation library yet). It drives the whole pipeline
-end-to-end on a button press, hardcoded to the last 7 days.
+`App.tsx` owns DB init (`initDb` + `initEmbeddingStore`) and a two-tab
+switch (no navigation library) between `DiaryScreen` (drives the scan →
+cluster → resolve pipeline, plus per-visit journal entry) and
+`AskDiaryScreen` (RAG query UI).
+
+### RAG layer (`src/rag/`)
+
+A visit only becomes searchable once it's journaled — embeddings are
+derived from the journaled `notes`/`tags`, not the raw photos/transcript,
+and are (re-)computed in `DiaryScreen.saveJournal` right after
+`journalVisit` returns.
+
+```
+embeddings.ts
+  → embedText(text, "query" | "document") calls the Voyage AI REST API
+    directly (fetch, no SDK — Claude has no embeddings endpoint). The
+    query/document input_type split is Voyage's asymmetric-embedding
+    convention, not optional plumbing — get it backwards and retrieval
+    quality drops. Also exports cosineSimilarity()
+
+embeddingStore.ts (src/db/)
+  → separate SQLite table `visit_embeddings` (visitId → JSON-encoded
+    float array + model name), keyed 1:1 to visits.id but intentionally
+    not a column on the visits table
+
+searchDiary.ts
+  → findRelevantVisits(query): embeds the query, cosine-ranks against
+    every stored embedding, returns top 5. askDiary(query): feeds those
+    visits to Claude as numbered context and asks it to answer citing
+    [n] — the "only from context" instruction is what keeps it from
+    inventing visits that aren't in the diary
+```
 
 ### Not yet built (see README.md for details)
 
-- Voice journal capture (speech-to-text + LLM notes) — `Visit.transcript`/
-  `notes` exist in the schema but nothing populates them yet
+- Voice *capture* (speech-to-text → transcript) — journaling takes typed/
+  pasted transcript text today; only the LLM-structuring half exists
 - Manual "confirm this visit" / correction UI — `Visit.confirmed` exists
   but is never set true
 - Posting drafted reviews externally (phase 2)
