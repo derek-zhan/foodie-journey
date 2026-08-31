@@ -63,48 +63,73 @@ function isJournaled(visit: Visit): boolean {
   return Boolean(visit.notes || visit.tags?.length);
 }
 
+// DiaryScreen's "Scan recent photos" re-upserts every visit clusterVisits
+// re-detects in the window, including ones already journaled - and a
+// freshly-clustered Visit has no transcript/notes/rating/tags at all (see
+// clusterVisits.ts). Without this merge, that re-scan would blindly
+// overwrite (SQL) or replace (web) an existing journal entry with blanks.
+function mergeJournalFields(incoming: Visit, existing: Visit | null): Visit {
+  if (!existing) return incoming;
+  return {
+    ...incoming,
+    transcript: incoming.transcript ?? existing.transcript,
+    notes: incoming.notes ?? existing.notes,
+    rating: incoming.rating ?? existing.rating,
+    tags: incoming.tags ?? existing.tags,
+  };
+}
+
 export function upsertVisit(visit: Visit) {
   if (!db) {
-    memoryVisits.set(visit.id, visit);
+    memoryVisits.set(visit.id, mergeJournalFields(visit, memoryVisits.get(visit.id) ?? null));
     return;
   }
 
-  db.runSync(
-    `INSERT INTO visits
-      (id, placeName, address, latitude, longitude, photoIds, startedAt, endedAt, transcript, notes, rating, tags, confirmed)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET
-      transcript=excluded.transcript,
-      notes=excluded.notes,
-      rating=excluded.rating,
-      tags=excluded.tags,
-      confirmed=excluded.confirmed;`,
-    [
-      visit.id,
-      visit.place.name,
-      visit.place.address,
-      visit.place.latitude,
-      visit.place.longitude,
-      JSON.stringify(visit.photoIds),
-      visit.startedAt,
-      visit.endedAt,
-      visit.transcript ?? null,
-      visit.notes ?? null,
-      visit.rating ?? null,
-      JSON.stringify(visit.tags ?? []),
-      visit.confirmed ? 1 : 0,
-    ]
-  );
+  db.withTransactionSync(() => {
+    db.runSync(
+      `INSERT INTO visits
+        (id, placeName, address, latitude, longitude, photoIds, startedAt, endedAt, transcript, notes, rating, tags, confirmed)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+        transcript=COALESCE(excluded.transcript, visits.transcript),
+        notes=COALESCE(excluded.notes, visits.notes),
+        rating=COALESCE(excluded.rating, visits.rating),
+        tags=COALESCE(excluded.tags, visits.tags),
+        confirmed=excluded.confirmed;`,
+      [
+        visit.id,
+        visit.place.name,
+        visit.place.address,
+        visit.place.latitude,
+        visit.place.longitude,
+        JSON.stringify(visit.photoIds),
+        visit.startedAt,
+        visit.endedAt,
+        visit.transcript ?? null,
+        visit.notes ?? null,
+        visit.rating ?? null,
+        visit.tags ? JSON.stringify(visit.tags) : null,
+        visit.confirmed ? 1 : 0,
+      ]
+    );
 
-  // Re-sync the FTS row every time - simplest way to keep it correct as
-  // notes/tags change across journal edits, and cheap at this data scale.
-  db.runSync(`DELETE FROM visits_fts WHERE visitId = ?;`, [visit.id]);
-  if (isJournaled(visit)) {
-    db.runSync(`INSERT INTO visits_fts (visitId, content) VALUES (?, ?);`, [
+    // Re-sync the FTS row from what's now actually persisted, not the raw
+    // `visit` param - a re-scan's blank incoming fields were just merged
+    // against the existing row above (COALESCE), and the FTS content has
+    // to reflect that merge, not the pre-merge input.
+    const row = db.getFirstSync<any>(`SELECT * FROM visits WHERE id = ?;`, [
       visit.id,
-      searchableText(visit),
     ]);
-  }
+    const persisted = row ? rowToVisit(row) : visit;
+
+    db.runSync(`DELETE FROM visits_fts WHERE visitId = ?;`, [visit.id]);
+    if (isJournaled(persisted)) {
+      db.runSync(`INSERT INTO visits_fts (visitId, content) VALUES (?, ?);`, [
+        visit.id,
+        searchableText(persisted),
+      ]);
+    }
+  });
 }
 
 function rowToVisit(row: any): Visit {
