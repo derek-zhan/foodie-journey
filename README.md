@@ -12,8 +12,8 @@ Phone photo library
   → Places API lookup (reverse geocode to restaurant)
   → Visit clustering (group nearby photos in time)
   → Voice journal (LLM structuring of a transcript into notes/tags/rating)
-  → Local diary storage (SQLite, timeline UI)
-  → Ask the diary (RAG: embed + retrieve journaled visits, Claude answers)
+  → Local diary storage (SQLite, timeline UI, FTS5 search index)
+  → Ask the diary (RAG: local full-text retrieval, Claude answers)
 ```
 
 Each stage lives in `src/pipeline/`:
@@ -22,11 +22,17 @@ Each stage lives in `src/pipeline/`:
 - `clusterVisits.ts` — groups photos into discrete visits by time + distance proximity
 - `journalVisit.ts` — turns a transcript into structured notes/tags/rating via the Claude API
 
-RAG (semantic search over the diary) lives in `src/rag/`:
-- `embeddings.ts` — embeds text via the Voyage AI API, plus cosine similarity
-- `searchDiary.ts` — retrieves the most relevant journaled visits for a query and has Claude answer from them
+RAG (search over the diary) lives in `src/rag/`:
+- `searchDiary.ts` — retrieves the most relevant journaled visits for a query via local full-text search and has Claude answer from them
 
-Storage: `src/db/visitStore.ts` (visits) + `src/db/embeddingStore.ts` (per-visit embeddings), both SQLite via `expo-sqlite`
+Retrieval is entirely local: `visitStore.ts` maintains a SQLite FTS5 index
+(bm25-ranked) over each visit's notes/tags/place name — no embeddings, no
+external API for search. It's lexical, not semantic (a query for "ramen"
+won't match a note that only says "noodle soup"), which is a real tradeoff
+against something like Voyage/OpenAI embeddings, but it's free, offline, and
+plenty for searching your own vocabulary over your own diary.
+
+Storage: `src/db/visitStore.ts` (visits + the FTS5 index), SQLite via `expo-sqlite`
 UI: `src/screens/DiaryScreen.tsx` (timeline + journal entry) and `src/screens/AskDiaryScreen.tsx` (ask the diary), switched via a tab bar in `App.tsx`
 
 ## Setup
@@ -35,10 +41,9 @@ UI: `src/screens/DiaryScreen.tsx` (timeline + journal entry) and `src/screens/As
 2. Copy `.env.example` to `.env` and add:
    - a Google Places API key (enable "Places API (New)" in Google Cloud Console)
    - an Anthropic API key (for journal structuring and diary Q&A)
-   - a Voyage AI API key (for diary search embeddings)
 3. `npm start` — then open in Expo Go on your phone, or run `npm run ios` / `npm run android`
 
-Note: all three keys are `EXPO_PUBLIC_*` and ship inside the client bundle —
+Note: both keys are `EXPO_PUBLIC_*` and ship inside the client bundle —
 fine for this exploratory build, not for a distributed app (would need a
 backend proxy).
 

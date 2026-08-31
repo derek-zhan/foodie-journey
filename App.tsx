@@ -4,7 +4,6 @@ import { StatusBar } from "expo-status-bar";
 import DiaryScreen from "./src/screens/DiaryScreen";
 import AskDiaryScreen from "./src/screens/AskDiaryScreen";
 import { initDb } from "./src/db/visitStore";
-import { initEmbeddingStore } from "./src/db/embeddingStore";
 
 type Tab = "diary" | "ask";
 
@@ -13,7 +12,6 @@ export default function App() {
 
   useEffect(() => {
     initDb();
-    initEmbeddingStore();
   }, []);
 
   return (
