@@ -1,4 +1,5 @@
 import type { ResolvedPlace } from "../types";
+import { resolveOsmPlace } from "./resolveOsmPlace";
 
 // TODO: move to a proper env/config module before shipping — never commit
 // a real key to source control (see .env.example + .gitignore).
@@ -19,15 +20,33 @@ const FOOD_PLACE_TYPES = new Set([
  * Given a coordinate, finds the nearest place and returns it only if it's a
  * food/restaurant category. Returns null if nothing food-related is nearby
  * (e.g. the photo was taken at home, or in a park).
+ *
+ * Prefers Google Places; falls back to OpenStreetMap/Overpass (free, no
+ * key) when no Google key is configured, or when the Google call itself
+ * fails - proof-of-concept simplicity over a "which provider" setting.
  */
 export async function resolvePlace(
   latitude: number,
   longitude: number
 ): Promise<ResolvedPlace | null> {
-  if (!GOOGLE_PLACES_API_KEY) {
-    throw new Error("Missing EXPO_PUBLIC_GOOGLE_PLACES_API_KEY");
+  if (GOOGLE_PLACES_API_KEY) {
+    try {
+      return await resolveGooglePlace(latitude, longitude);
+    } catch (err) {
+      console.warn(
+        "Google Places lookup failed, falling back to OpenStreetMap:",
+        err
+      );
+    }
   }
 
+  return resolveOsmPlace(latitude, longitude);
+}
+
+async function resolveGooglePlace(
+  latitude: number,
+  longitude: number
+): Promise<ResolvedPlace | null> {
   const url = new URL(
     "https://places.googleapis.com/v1/places:searchNearby"
   );
