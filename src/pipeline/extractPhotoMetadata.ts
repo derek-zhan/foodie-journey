@@ -1,4 +1,3 @@
-import * as MediaLibrary from "expo-media-library";
 import type { PhotoAsset } from "../types";
 
 /**
@@ -7,11 +6,19 @@ import type { PhotoAsset } from "../types";
  * Reads geotagged photos from the device library within a date range and
  * normalizes them into PhotoAsset records (GPS + timestamp only — no image
  * data is copied out at this stage).
+ *
+ * expo-media-library is imported dynamically (not at module scope) because
+ * simply importing it throws on web ("Cannot find native module") - there's
+ * no device photo library to read there. Deferring the import means that
+ * failure only happens if this function is actually called, inside the
+ * caller's existing try/catch, instead of crashing the whole module graph
+ * (and blanking the page) the moment DiaryScreen.tsx is loaded.
  */
 export async function extractPhotoMetadata(
   since: Date,
   until: Date = new Date()
 ): Promise<PhotoAsset[]> {
+  const MediaLibrary = await import("expo-media-library");
   const { status } = await MediaLibrary.requestPermissionsAsync();
   if (status !== "granted") {
     throw new Error("Photo library permission not granted");

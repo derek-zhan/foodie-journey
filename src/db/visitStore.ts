@@ -1,9 +1,20 @@
+import { Platform } from "react-native";
 import * as SQLite from "expo-sqlite";
 import type { Visit } from "../types";
 
-const db = SQLite.openDatabaseSync("foodie-journey.db");
+// expo-sqlite's web backend bridges to a worker via a busy-wait spin on a
+// SharedArrayBuffer (see WorkerChannel.ts) rather than a real async wait -
+// in practice it times out unpredictably even with correct cross-origin
+// isolation headers (see scripts/webDev.js). Native (iOS/Android) uses the
+// real synchronous SQLite API; web falls back to an in-memory store so the
+// app is at least usable there, with the caveat that nothing persists
+// across a page reload.
+const db =
+  Platform.OS === "web" ? null : SQLite.openDatabaseSync("foodie-journey.db");
+const memoryVisits = new Map<string, Visit>();
 
 export function initDb() {
+  if (!db) return;
   db.execSync(`
     CREATE TABLE IF NOT EXISTS visits (
       id TEXT PRIMARY KEY NOT NULL,
@@ -24,6 +35,11 @@ export function initDb() {
 }
 
 export function upsertVisit(visit: Visit) {
+  if (!db) {
+    memoryVisits.set(visit.id, visit);
+    return;
+  }
+
   db.runSync(
     `INSERT INTO visits
       (id, placeName, address, latitude, longitude, photoIds, startedAt, endedAt, transcript, notes, rating, tags, confirmed)
@@ -53,6 +69,12 @@ export function upsertVisit(visit: Visit) {
 }
 
 export function listVisits(): Visit[] {
+  if (!db) {
+    return Array.from(memoryVisits.values()).sort(
+      (a, b) => b.startedAt - a.startedAt
+    );
+  }
+
   const rows = db.getAllSync<any>(
     `SELECT * FROM visits ORDER BY startedAt DESC;`
   );

@@ -11,7 +11,9 @@
     "expo-sqlite": "^57.0.2",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
+    "react-dom": "19.2.3",
     "react-native": "0.86.3",
+    "react-native-web": "^0.21.2",
     "zod": "^4.5.4"
   },
   "devDependencies": {
@@ -22,7 +24,7 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "node scripts/webDev.js"
   },
   "private": true
 }
