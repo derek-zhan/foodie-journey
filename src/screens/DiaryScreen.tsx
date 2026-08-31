@@ -10,11 +10,9 @@ import {
 } from "react-native";
 import type { Visit } from "../types";
 import { listVisits, upsertVisit } from "../db/visitStore";
-import { upsertVisitEmbedding } from "../db/embeddingStore";
 import { extractPhotoMetadata } from "../pipeline/extractPhotoMetadata";
 import { clusterVisits } from "../pipeline/clusterVisits";
 import { journalVisit } from "../pipeline/journalVisit";
-import { EMBEDDING_MODEL, embedText } from "../rag/embeddings";
 
 export default function DiaryScreen() {
   const [visits, setVisits] = useState<Visit[]>([]);
@@ -44,15 +42,9 @@ export default function DiaryScreen() {
         tags: entry.tags,
         rating: entry.rating,
       };
+      // upsertVisit also resyncs the FTS5 search index (see visitStore.ts)
+      // so the visit becomes searchable as soon as it's journaled.
       upsertVisit(updated);
-
-      // Re-embed on every save so the diary stays searchable as notes change.
-      const embedding = await embedText(
-        `${updated.place.name}. ${entry.notes} Tags: ${entry.tags.join(", ")}`,
-        "document"
-      );
-      upsertVisitEmbedding(updated.id, embedding, EMBEDDING_MODEL);
-
       setVisits(listVisits());
       setJournalingId(null);
     } catch (err: any) {

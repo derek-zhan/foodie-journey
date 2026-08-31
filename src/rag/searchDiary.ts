@@ -1,8 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { listVisitEmbeddings } from "../db/embeddingStore";
-import { listVisits } from "../db/visitStore";
+import { searchVisits } from "../db/visitStore";
 import type { Visit } from "../types";
-import { cosineSimilarity, embedText } from "./embeddings";
 
 // Same client-bundling caveat as journalVisit.ts / resolvePlace.ts.
 const client = new Anthropic({
@@ -10,43 +8,29 @@ const client = new Anthropic({
   dangerouslyAllowBrowser: true,
 });
 
-const TOP_K = 5;
-
 export interface DiaryAnswer {
   answer: string;
   sources: Visit[];
 }
 
 /**
- * Retrieval step: embeds the query and ranks journaled visits by cosine
- * similarity against their stored embeddings. Visits without a journal
- * entry yet have no embedding and are never returned.
+ * Retrieval step: local full-text search (SQLite FTS5 + bm25, see
+ * db/visitStore.ts) over journaled visits - no embeddings, no external
+ * API. Visits without a journal entry yet have no notes/tags to search
+ * and are never returned.
  */
-export async function findRelevantVisits(query: string): Promise<Visit[]> {
-  const embeddings = listVisitEmbeddings();
-  if (embeddings.length === 0) return [];
-
-  const queryEmbedding = await embedText(query, "query");
-  const visitById = new Map(listVisits().map((v) => [v.id, v]));
-
-  return embeddings
-    .map(({ visitId, embedding }) => ({
-      visit: visitById.get(visitId),
-      score: cosineSimilarity(queryEmbedding, embedding),
-    }))
-    .filter((r): r is { visit: Visit; score: number } => r.visit != null)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, TOP_K)
-    .map((r) => r.visit);
+export function findRelevantVisits(query: string): Visit[] {
+  return searchVisits(query);
 }
 
 /**
  * RAG over the diary: retrieves the most relevant journaled visits for a
- * natural-language query, then has Claude answer using only those visits
- * as context (so it can't invent visits that aren't in the diary).
+ * natural-language query via local full-text search, then has Claude
+ * answer using only those visits as context (so it can't invent visits
+ * that aren't in the diary).
  */
 export async function askDiary(query: string): Promise<DiaryAnswer> {
-  const sources = await findRelevantVisits(query);
+  const sources = findRelevantVisits(query);
   if (sources.length === 0) {
     return {
       answer:

@@ -25,13 +25,15 @@ There is no lint or test tooling configured in this repo yet (no eslint,
 jest, or prettier config present) — don't assume `npm test` or `npm run
 lint` exist.
 
-Environment: copy `.env.example` to `.env` and set three keys —
+Environment: copy `.env.example` to `.env` and set two keys —
 `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` (requires "Places API (New)" enabled in
-Google Cloud Console), `EXPO_PUBLIC_ANTHROPIC_API_KEY` (journal structuring +
-diary Q&A), `EXPO_PUBLIC_VOYAGE_API_KEY` (diary search embeddings). Each is
-checked lazily by the function that needs it and throws if missing — there's
-no startup validation. All three are `EXPO_PUBLIC_*` and ship in the client
-bundle; see the caveat comment atop `journalVisit.ts`/`searchDiary.ts`.
+Google Cloud Console) and `EXPO_PUBLIC_ANTHROPIC_API_KEY` (journal
+structuring + diary Q&A). Each is checked lazily by the function that needs
+it and throws if missing — there's no startup validation. Both are
+`EXPO_PUBLIC_*` and ship in the client bundle; see the caveat comment atop
+`journalVisit.ts`/`searchDiary.ts`. Diary search itself (`searchVisits` in
+`visitStore.ts`) needs no key at all — it's local SQLite FTS5, not an
+embeddings API.
 
 ## Architecture
 
@@ -63,50 +65,45 @@ journalVisit (src/pipeline/journalVisit.ts)
     structuring" half of the voice journal step
 
 visitStore (src/db/visitStore.ts)
-  → SQLite (expo-sqlite, synchronous API). initDb() creates the table if
-    missing; upsertVisit does INSERT ... ON CONFLICT DO UPDATE, but the
-    update clause only touches the user-editable fields (transcript,
-    notes, rating, tags, confirmed) — place/photo/time fields are
-    write-once per visit id. Visit ids are `${placeId}-${firstPhotoTimestamp}`,
-    and listVisits() reverse-engineers placeId from that composite id
-    rather than storing it separately — keep that in sync if the id
-    format ever changes
+  → SQLite (expo-sqlite, synchronous API). initDb() creates the visits
+    table if missing, plus a visits_fts FTS5 virtual table (see below).
+    upsertVisit does INSERT ... ON CONFLICT DO UPDATE, but the update
+    clause only touches the user-editable fields (transcript, notes,
+    rating, tags, confirmed) — place/photo/time fields are write-once
+    per visit id. Visit ids are `${placeId}-${firstPhotoTimestamp}`, and
+    listVisits() reverse-engineers placeId from that composite id rather
+    than storing it separately — keep that in sync if the id format ever
+    changes. On web (in-memory fallback, no real SQLite — see the
+    Platform.OS guard at the top of the file) there's no FTS5 either;
+    searchVisits() degrades to a plain keyword-overlap scan there
 ```
 
 `Visit` and its sub-types (`PhotoAsset`, `ResolvedPlace`) are the shared
 data model, defined once in `src/types/index.ts`.
 
-`App.tsx` owns DB init (`initDb` + `initEmbeddingStore`) and a two-tab
-switch (no navigation library) between `DiaryScreen` (drives the scan →
-cluster → resolve pipeline, plus per-visit journal entry) and
-`AskDiaryScreen` (RAG query UI).
+`App.tsx` owns DB init (`initDb`) and a two-tab switch (no navigation
+library) between `DiaryScreen` (drives the scan → cluster → resolve
+pipeline, plus per-visit journal entry) and `AskDiaryScreen` (RAG query
+UI).
 
 ### RAG layer (`src/rag/`)
 
-A visit only becomes searchable once it's journaled — embeddings are
+A visit only becomes searchable once it's journaled — the FTS5 index is
 derived from the journaled `notes`/`tags`, not the raw photos/transcript,
-and are (re-)computed in `DiaryScreen.saveJournal` right after
-`journalVisit` returns.
+and is resynced inside `upsertVisit` (visitStore.ts) every time a visit is
+saved, including from `DiaryScreen.saveJournal` right after `journalVisit`
+returns.
 
 ```
-embeddings.ts
-  → embedText(text, "query" | "document") calls the Voyage AI REST API
-    directly (fetch, no SDK — Claude has no embeddings endpoint). The
-    query/document input_type split is Voyage's asymmetric-embedding
-    convention, not optional plumbing — get it backwards and retrieval
-    quality drops. Also exports cosineSimilarity()
-
-embeddingStore.ts (src/db/)
-  → separate SQLite table `visit_embeddings` (visitId → JSON-encoded
-    float array + model name), keyed 1:1 to visits.id but intentionally
-    not a column on the visits table
-
 searchDiary.ts
-  → findRelevantVisits(query): embeds the query, cosine-ranks against
-    every stored embedding, returns top 5. askDiary(query): feeds those
-    visits to Claude as numbered context and asks it to answer citing
-    [n] — the "only from context" instruction is what keeps it from
-    inventing visits that aren't in the diary
+  → findRelevantVisits(query): delegates straight to visitStore's
+    searchVisits() (local SQLite FTS5 + bm25 ranking — see visitStore.ts
+    above; no embeddings, no external API). askDiary(query): feeds the
+    top 5 results to Claude as numbered context and asks it to answer
+    citing [n] — the "only from context" instruction is what keeps it
+    from inventing visits that aren't in the diary. Retrieval is
+    lexical, not semantic: a query has to share actual words with a
+    visit's notes/tags/place name to match
 ```
 
 ### Not yet built (see README.md for details)

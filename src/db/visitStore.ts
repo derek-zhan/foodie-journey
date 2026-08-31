@@ -13,6 +13,8 @@ const db =
   Platform.OS === "web" ? null : SQLite.openDatabaseSync("foodie-journey.db");
 const memoryVisits = new Map<string, Visit>();
 
+const SEARCH_LIMIT = 5;
+
 export function initDb() {
   if (!db) return;
   db.execSync(`
@@ -32,6 +34,25 @@ export function initDb() {
       confirmed INTEGER NOT NULL DEFAULT 0
     );
   `);
+
+  // Full-text index over each visit's searchable text (place name + notes
+  // + tags) - powers rag/searchDiary.ts's retrieval step, entirely local
+  // (no embeddings, no external API). expo-sqlite ships FTS5 enabled by
+  // default on both iOS and Android. Kept as its own virtual table and
+  // resynced on every upsertVisit (see below) rather than a visits column,
+  // so "what's searchable" stays in one place.
+  db.execSync(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS visits_fts USING fts5(
+      visitId UNINDEXED,
+      content
+    );
+  `);
+}
+
+function searchableText(visit: Visit): string {
+  return [visit.place.name, visit.notes, visit.tags?.join(" ")]
+    .filter(Boolean)
+    .join(" ");
 }
 
 export function upsertVisit(visit: Visit) {
@@ -66,6 +87,16 @@ export function upsertVisit(visit: Visit) {
       visit.confirmed ? 1 : 0,
     ]
   );
+
+  // Re-sync the FTS row every time - simplest way to keep it correct as
+  // notes/tags change across journal edits, and cheap at this data scale.
+  db.runSync(`DELETE FROM visits_fts WHERE visitId = ?;`, [visit.id]);
+  if (visit.notes) {
+    db.runSync(`INSERT INTO visits_fts (visitId, content) VALUES (?, ?);`, [
+      visit.id,
+      searchableText(visit),
+    ]);
+  }
 }
 
 export function listVisits(): Visit[] {
@@ -97,4 +128,53 @@ export function listVisits(): Visit[] {
     tags: JSON.parse(row.tags ?? "[]"),
     confirmed: !!row.confirmed,
   }));
+}
+
+// Turns a raw user query into an FTS5 MATCH expression: strip each token
+// down to \w characters (so it can't be parsed as FTS5 query syntax - AND/
+// OR/NOT, *, -, quotes, etc.) then OR them together for recall. Returns
+// null for an empty/whitespace-only query.
+function toFtsMatchQuery(query: string): string | null {
+  const tokens = query
+    .split(/\s+/)
+    .map((t) => t.replace(/[^\w]/g, ""))
+    .filter(Boolean);
+  if (tokens.length === 0) return null;
+  return tokens.map((t) => `"${t}"`).join(" OR ");
+}
+
+/**
+ * Full-text search over journaled visits (place name + notes + tags),
+ * ranked by SQLite FTS5's bm25(). On web (in-memory fallback, no real
+ * SQLite - see the comment above) this degrades to a plain keyword-overlap
+ * scan over the same fields.
+ */
+export function searchVisits(query: string): Visit[] {
+  if (!db) {
+    const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+    if (tokens.length === 0) return [];
+    return Array.from(memoryVisits.values())
+      .map((visit) => {
+        const text = searchableText(visit).toLowerCase();
+        return { visit, score: tokens.filter((t) => text.includes(t)).length };
+      })
+      .filter((r) => r.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, SEARCH_LIMIT)
+      .map((r) => r.visit);
+  }
+
+  const matchQuery = toFtsMatchQuery(query);
+  if (!matchQuery) return [];
+
+  // bm25() is more-negative-is-better in FTS5, so ascending order ranks
+  // best matches first.
+  const rows = db.getAllSync<{ visitId: string }>(
+    `SELECT visitId FROM visits_fts WHERE visits_fts MATCH ? ORDER BY bm25(visits_fts) LIMIT ?;`,
+    [matchQuery, SEARCH_LIMIT]
+  );
+  const visitById = new Map(listVisits().map((v) => [v.id, v]));
+  return rows
+    .map((row) => visitById.get(row.visitId))
+    .filter((v): v is Visit => v != null);
 }
