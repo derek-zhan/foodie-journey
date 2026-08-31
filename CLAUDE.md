@@ -119,8 +119,13 @@ searchDiary.ts
 
 ## Development workflow
 
-`master` is branch-protected: no direct pushes, PRs required, CI
-(typecheck) must pass before merge. For every new feature or fix:
+GitHub branch protection on `master` (blocking direct pushes, requiring
+a green CI check) is **not enabled** — this repo is private on a free
+plan, and GitHub returns 403 "Upgrade to GitHub Pro or make this
+repository public to enable this feature" for branch protection on
+private repos at that tier. Until the repo goes public or upgrades,
+this is a convention enforced by whoever/whatever is committing
+(including Claude), not by GitHub. For every new feature or fix:
 
 1. Branch off `master`: `feature/<slug>` or `fix/<slug>`.
 2. Implement and commit on that branch.
