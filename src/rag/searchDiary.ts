@@ -2,10 +2,15 @@ import Anthropic from "@anthropic-ai/sdk";
 import { searchVisits } from "../db/visitStore";
 import type { Visit } from "../types";
 
-// Same client-bundling caveat as journalVisit.ts / resolvePlace.ts.
+// Same client-bundling caveat as journalVisit.ts / resolvePlace.ts, and the
+// same EXPO_PUBLIC_ANTHROPIC_WORKSPACE_ID requirement for identity-linked
+// keys - see the comment on the client in journalVisit.ts.
 const client = new Anthropic({
   apiKey: process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY ?? "",
   dangerouslyAllowBrowser: true,
+  defaultHeaders: process.env.EXPO_PUBLIC_ANTHROPIC_WORKSPACE_ID
+    ? { "anthropic-workspace-id": process.env.EXPO_PUBLIC_ANTHROPIC_WORKSPACE_ID }
+    : undefined,
 });
 
 export interface DiaryAnswer {
@@ -49,27 +54,22 @@ export async function askDiary(query: string): Promise<DiaryAnswer> {
     })
     .join("\n\n");
 
-  // DISABLED — exploratory feature, not yet exercised against a live key.
-  // Uncomment the block below (and remove this throw) once you've set
-  // EXPO_PUBLIC_ANTHROPIC_API_KEY and are ready to re-enable it.
-  throw new Error("askDiary is disabled — see the comment in searchDiary.ts");
+  const response = await client.messages.create({
+    model: "claude-opus-5",
+    max_tokens: 1024,
+    system:
+      "You answer questions about the user's restaurant diary using only the visits given as context. Cite visits by their [n] number. If the context doesn't answer the question, say so plainly.",
+    messages: [
+      {
+        role: "user",
+        content: `Diary visits:\n${context}\n\nQuestion: ${query}`,
+      },
+    ],
+  });
 
-  // const response = await client.messages.create({
-  //   model: "claude-opus-5",
-  //   max_tokens: 1024,
-  //   system:
-  //     "You answer questions about the user's restaurant diary using only the visits given as context. Cite visits by their [n] number. If the context doesn't answer the question, say so plainly.",
-  //   messages: [
-  //     {
-  //       role: "user",
-  //       content: `Diary visits:\n${context}\n\nQuestion: ${query}`,
-  //     },
-  //   ],
-  // });
-  //
-  // const textBlock = response.content.find((b) => b.type === "text");
-  // return {
-  //   answer: textBlock?.type === "text" ? textBlock.text : "",
-  //   sources,
-  // };
+  const textBlock = response.content.find((b) => b.type === "text");
+  return {
+    answer: textBlock?.type === "text" ? textBlock.text : "",
+    sources,
+  };
 }

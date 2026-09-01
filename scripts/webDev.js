@@ -15,7 +15,62 @@
 // on PORT that adds the two headers to every response. Open PORT in the
 // browser, not METRO_PORT.
 const http = require("http");
+const fs = require("fs");
+const path = require("path");
 const { spawn } = require("child_process");
+const exifr = require("exifr");
+
+// Dev-only stand-in for a device photo library on web (which has none -
+// extractPhotoMetadata.ts always throws there on native builds). Reads the
+// same gitignored .test/ folder the functional tests use, live via exifr
+// (real GPS, nothing hardcoded) each request - no caching, so dropping a
+// new photo in and refreshing the Review/Diary screen picks it up
+// immediately.
+//
+// Double-gated against ever reaching a real deployment: this script itself
+// (scripts/webDev.js) is only ever invoked by `npm run web` for local
+// iteration - it spawns Metro's *dev* server (`expo start --web`), never a
+// production export, so it's simply not part of any build/deploy pipeline.
+// And the client only ever calls these routes when extractPhotoMetadata.ts
+// sees both Platform.OS === "web" AND __DEV__ (false in any production
+// bundle) - see the isLocalWebDev comment there.
+const TEST_PHOTOS_DIR = path.resolve(__dirname, "../.test");
+
+async function handleTestPhotosList(req, res) {
+  res.setHeader("content-type", "application/json");
+  if (!fs.existsSync(TEST_PHOTOS_DIR)) {
+    res.end("[]");
+    return;
+  }
+  const files = fs
+    .readdirSync(TEST_PHOTOS_DIR)
+    .filter((f) => /\.(jpe?g|heic)$/i.test(f));
+
+  const photos = [];
+  for (const file of files) {
+    const gps = await exifr.gps(path.join(TEST_PHOTOS_DIR, file));
+    if (gps) photos.push({ id: file, latitude: gps.latitude, longitude: gps.longitude });
+  }
+  res.end(JSON.stringify(photos));
+}
+
+function handleTestPhotoImage(req, res, filename) {
+  // Reject anything that isn't a bare filename (no "..", no path
+  // separators) before it ever touches the filesystem.
+  if (filename !== path.basename(filename) || filename.includes("..")) {
+    res.writeHead(400);
+    res.end("Invalid filename");
+    return;
+  }
+  const filePath = path.join(TEST_PHOTOS_DIR, filename);
+  if (!filePath.startsWith(TEST_PHOTOS_DIR) || !fs.existsSync(filePath)) {
+    res.writeHead(404);
+    res.end("Not found");
+    return;
+  }
+  res.setHeader("content-type", "image/jpeg");
+  fs.createReadStream(filePath).pipe(res);
+}
 
 // Last-resort safety net: a dev proxy dying on a stray socket error is
 // worse than logging and carrying on.
@@ -46,6 +101,22 @@ function waitForMetro(callback) {
 function proxyRequest(req, res) {
   req.on("error", () => {});
   res.on("error", () => {});
+
+  if (req.url === "/__test-photos") {
+    handleTestPhotosList(req, res).catch((err) => {
+      res.writeHead(500);
+      res.end(`Failed to read .test/: ${err.message}`);
+    });
+    return;
+  }
+  if (req.url.startsWith("/__test-photo-image/")) {
+    handleTestPhotoImage(
+      req,
+      res,
+      decodeURIComponent(req.url.slice("/__test-photo-image/".length))
+    );
+    return;
+  }
 
   const upstream = http.request(
     {
