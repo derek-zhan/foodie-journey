@@ -1,6 +1,6 @@
 import { Platform } from "react-native";
 import * as SQLite from "expo-sqlite";
-import type { Visit } from "../types";
+import type { ResolvedPlace, Visit } from "../types";
 
 // expo-sqlite's web backend bridges to a worker via a busy-wait spin on a
 // SharedArrayBuffer (see WorkerChannel.ts) rather than a real async wait -
@@ -180,6 +180,39 @@ export function upsertVisit(visit: Visit) {
     return;
   }
   db.withTransactionSync(() => writeVisitRow(db, visit));
+}
+
+/**
+ * Corrects a visit's restaurant after the user picks an alternate or
+ * types a manual match (RestaurantPicker.tsx). Unlike upsertVisit, this
+ * changes `place`, which changes the derived id (`${placeId}-${startedAt}`
+ * - see rowToVisit) - so it can't be an UPDATE against the existing row;
+ * it deletes the old row + its FTS entry and inserts fresh under the new
+ * id. Always sets confirmed: true - the user is actively confirming the
+ * match.
+ */
+export function updateVisitPlace(visit: Visit, newPlace: ResolvedPlace): Visit {
+  const updated: Visit = {
+    ...visit,
+    id: `${newPlace.placeId}-${visit.startedAt}`,
+    place: newPlace,
+    confirmed: true,
+  };
+
+  if (!db) {
+    if (updated.id !== visit.id) memoryVisits.delete(visit.id);
+    memoryVisits.set(updated.id, updated);
+    return updated;
+  }
+
+  db.withTransactionSync(() => {
+    if (updated.id !== visit.id) {
+      db.runSync(`DELETE FROM visits WHERE id = ?;`, [visit.id]);
+      db.runSync(`DELETE FROM visits_fts WHERE visitId = ?;`, [visit.id]);
+    }
+    writeVisitRow(db, updated);
+  });
+  return updated;
 }
 
 // Re-scan = never let it clobber an existing journal entry or the

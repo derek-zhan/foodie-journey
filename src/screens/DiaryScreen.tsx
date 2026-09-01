@@ -15,6 +15,7 @@ import { extractPhotoMetadata } from "../pipeline/extractPhotoMetadata";
 import { clusterVisits } from "../pipeline/clusterVisits";
 import { useAssetThumbnails } from "../hooks/useAssetThumbnails";
 import JournalForm from "../components/JournalForm";
+import RestaurantPicker from "../components/RestaurantPicker";
 
 export default function DiaryScreen() {
   const [visits, setVisits] = useState<Visit[]>([]);
@@ -58,7 +59,10 @@ export default function DiaryScreen() {
         keyExtractor={(v) => v.id}
         renderItem={({ item }) => (
           <View style={styles.card}>
-            <Text style={styles.place}>{item.place.name}</Text>
+            <RestaurantPicker
+              visit={item}
+              onSaved={() => setVisits(listVisits())}
+            />
             <Text style={styles.meta}>
               {new Date(item.startedAt).toLocaleDateString()} ·{" "}
               {item.photoIds.length} photo
@@ -114,7 +118,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#f2f2f2",
     marginBottom: 10,
   },
-  place: { fontSize: 16, fontWeight: "600" },
   meta: { fontSize: 13, color: "#666", marginTop: 2 },
   tags: { fontSize: 12, color: "#888", marginTop: 4 },
   thumbRow: { marginTop: 8 },
