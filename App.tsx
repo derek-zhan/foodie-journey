@@ -2,10 +2,11 @@ import React, { useEffect, useState } from "react";
 import { View, Button, StyleSheet } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import DiaryScreen from "./src/screens/DiaryScreen";
+import ReviewScreen from "./src/screens/ReviewScreen";
 import AskDiaryScreen from "./src/screens/AskDiaryScreen";
 import { initDb } from "./src/db/visitStore";
 
-type Tab = "diary" | "ask";
+type Tab = "diary" | "review" | "ask";
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("diary");
@@ -23,12 +24,23 @@ export default function App() {
           color={tab === "diary" ? undefined : "#888"}
         />
         <Button
+          title="Review"
+          onPress={() => setTab("review")}
+          color={tab === "review" ? undefined : "#888"}
+        />
+        <Button
           title="Ask"
           onPress={() => setTab("ask")}
           color={tab === "ask" ? undefined : "#888"}
         />
       </View>
-      {tab === "diary" ? <DiaryScreen /> : <AskDiaryScreen />}
+      {tab === "diary" ? (
+        <DiaryScreen />
+      ) : tab === "review" ? (
+        <ReviewScreen />
+      ) : (
+        <AskDiaryScreen />
+      )}
       <StatusBar style="auto" />
     </View>
   );

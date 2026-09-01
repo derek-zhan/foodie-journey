@@ -15,27 +15,20 @@ import { extractPhotoMetadata } from "../pipeline/extractPhotoMetadata";
 import { clusterVisits } from "../pipeline/clusterVisits";
 import { useAssetThumbnails } from "../hooks/useAssetThumbnails";
 import JournalForm from "../components/JournalForm";
+import { startOfToday, isToday } from "../pipeline/todayWindow";
 
-export default function DiaryScreen() {
+export default function ReviewScreen() {
   const [visits, setVisits] = useState<Visit[]>([]);
   const [loading, setLoading] = useState(false);
   const thumbnails = useAssetThumbnails(visits);
 
-  useEffect(() => {
-    setVisits(listVisits());
-  }, []);
-
-  async function runScan() {
+  async function refresh() {
     setLoading(true);
     try {
-      const since = new Date();
-      since.setDate(since.getDate() - 7); // last 7 days for now
-
-      const photos = await extractPhotoMetadata(since);
+      const photos = await extractPhotoMetadata(startOfToday());
       const detected = await clusterVisits(photos);
-
       detected.forEach(upsertScannedVisit);
-      setVisits(listVisits());
+      setVisits(listVisits().filter((v) => isToday(v.startedAt)));
     } catch (err: any) {
       Alert.alert("Scan failed", err.message ?? String(err));
     } finally {
@@ -43,12 +36,16 @@ export default function DiaryScreen() {
     }
   }
 
+  useEffect(() => {
+    refresh();
+  }, []);
+
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>Foodie Journey</Text>
+      <Text style={styles.header}>Today's Review</Text>
       <Button
-        title={loading ? "Scanning…" : "Scan recent photos"}
-        onPress={runScan}
+        title={loading ? "Scanning…" : "Refresh"}
+        onPress={refresh}
         disabled={loading}
       />
       <FlatList
@@ -59,7 +56,6 @@ export default function DiaryScreen() {
           <View style={styles.card}>
             <Text style={styles.place}>{item.place.name}</Text>
             <Text style={styles.meta}>
-              {new Date(item.startedAt).toLocaleDateString()} ·{" "}
               {item.photoIds.length} photo
               {item.photoIds.length === 1 ? "" : "s"}
             </Text>
@@ -88,14 +84,15 @@ export default function DiaryScreen() {
 
             <JournalForm
               visit={item}
-              onSaved={() => setVisits(listVisits())}
+              onSaved={() =>
+                setVisits(listVisits().filter((v) => isToday(v.startedAt)))
+              }
             />
           </View>
         )}
         ListEmptyComponent={
           <Text style={styles.empty}>
-            No visits yet — tap "Scan recent photos" to detect restaurants
-            from your photo library.
+            No restaurants detected today yet — take some photos and refresh.
           </Text>
         }
       />

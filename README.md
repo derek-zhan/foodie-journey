@@ -42,7 +42,11 @@ against something like Voyage/OpenAI embeddings, but it's free, offline, and
 plenty for searching your own vocabulary over your own diary.
 
 Storage: `src/db/visitStore.ts` (visits + the FTS5 index), SQLite via `expo-sqlite`
-UI: `src/screens/DiaryScreen.tsx` (timeline, photo thumbnails, journal entry) and `src/screens/AskDiaryScreen.tsx` (ask the diary), switched via a tab bar in `App.tsx`.
+UI: `src/screens/DiaryScreen.tsx` (timeline, photo thumbnails, journal entry),
+`src/screens/ReviewScreen.tsx` (today's detected visits only, for same-day
+voice journaling) and `src/screens/AskDiaryScreen.tsx` (ask the diary),
+switched via a tab bar in `App.tsx`. Both journaling screens share
+`src/components/JournalForm.tsx` and `src/hooks/useAssetThumbnails.ts`.
 Photos themselves are never copied into the app — only the device's asset id is
 stored (see `Visit.photoIds`), and thumbnails are resolved from that id at
 render time.
@@ -74,7 +78,10 @@ touching the place-resolution pipeline:
 
 ## Not yet built
 
-- Voice *capture* (speech-to-text) — journaling currently takes pasted/typed
-  transcript text; the LLM-structuring half is wired up
 - Manual "confirm this visit" UI to correct misresolved places
 - Posting drafted reviews to Google Maps / Yelp / OpenTable (phase 2)
+
+Voice capture works via the OS keyboard's built-in dictation (tap the mic on
+the iOS/Android keyboard while the journal transcript field is focused) —
+there's no in-app speech-to-text library or recording UI, just a plain
+`TextInput` that dictation types into like any other text field.

@@ -1,6 +1,9 @@
 module.exports = {
   testEnvironment: "node",
   testMatch: ["**/__tests__/**/*.test.ts"],
+  // Loads .env into process.env before any test file runs - see
+  // jest.setup.js for why this is needed at all.
+  setupFiles: ["<rootDir>/jest.setup.js"],
   // Expo's env-var inlining (part of babel-preset-expo, used via
   // babel.config.js) pulls in node_modules/expo/virtual/env.js, a real but
   // ESM-syntax file - Jest's default transformIgnorePatterns skips all of
