@@ -17,7 +17,11 @@ Phone photo library
 ```
 
 Each stage lives in `src/pipeline/`:
-- `extractPhotoMetadata.ts` — reads the device photo library via `expo-media-library`
+- `extractPhotoMetadata.ts` — reads the device photo library via
+  `expo-media-library/legacy` (SDK 57's default export is a newer
+  class-based API; the old functional one this app uses only works from
+  the `/legacy` subpath). Also resolves a stored photo id back to a
+  displayable thumbnail on demand
 - `resolvePlace.ts` — resolves coordinates to a restaurant. Prefers Google Places
   (Nearby Search) when `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` is set; falls back to
   `resolveOsmPlace.ts` (OpenStreetMap/Overpass — free, no key) when it isn't, or
@@ -38,7 +42,10 @@ against something like Voyage/OpenAI embeddings, but it's free, offline, and
 plenty for searching your own vocabulary over your own diary.
 
 Storage: `src/db/visitStore.ts` (visits + the FTS5 index), SQLite via `expo-sqlite`
-UI: `src/screens/DiaryScreen.tsx` (timeline + journal entry) and `src/screens/AskDiaryScreen.tsx` (ask the diary), switched via a tab bar in `App.tsx`
+UI: `src/screens/DiaryScreen.tsx` (timeline, photo thumbnails, journal entry) and `src/screens/AskDiaryScreen.tsx` (ask the diary), switched via a tab bar in `App.tsx`.
+Photos themselves are never copied into the app — only the device's asset id is
+stored (see `Visit.photoIds`), and thumbnails are resolved from that id at
+render time.
 
 ## Setup
 

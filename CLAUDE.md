@@ -50,7 +50,18 @@ Single linear pipeline, each stage a pure-ish async function in
 ```
 extractPhotoMetadata (src/pipeline/extractPhotoMetadata.ts)
   → reads device photo library via expo-media-library, paginated,
-    filters to geotagged photos only, returns PhotoAsset[] sorted by time
+    filters to geotagged photos only, returns PhotoAsset[] sorted by time.
+    Imports from "expo-media-library/legacy", NOT the bare package name -
+    the bare "expo-media-library" is SDK 57's new class-based Asset/Album/
+    Query API, and its re-exported old functional API
+    (requestPermissionsAsync/getAssetsAsync/getAssetInfoAsync, which this
+    whole file uses) is a deliberate throw-on-call deprecation shim, not a
+    real implementation. This bit natively too, not just on web - found
+    while wiring up thumbnails. Same file also exports
+    getAssetThumbnailUri(photoId) - resolves a stored photoId back to a
+    displayable uri (DiaryScreen uses it for the photo thumbnail row);
+    returns null instead of throwing if the asset can't be resolved
+    anymore (deleted, permission revoked since the scan)
 
 clusterVisits (src/pipeline/clusterVisits.ts)
   → groups PhotoAsset[] into visits using two thresholds: MAX_GAP_MINUTES
