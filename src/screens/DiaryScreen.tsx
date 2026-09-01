@@ -30,6 +30,7 @@ export default function DiaryScreen() {
     try {
       const since = new Date();
       since.setDate(since.getDate() - 7); // last 7 days for now
+      since.setHours(0, 0, 0, 0); // stable across repeated scans in the same day - see extractPhotoMetadata.ts's anchor comment
 
       const photos = await extractPhotoMetadata(since);
       const detected = await clusterVisits(photos);
