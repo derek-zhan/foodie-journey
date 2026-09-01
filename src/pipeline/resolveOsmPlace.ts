@@ -1,4 +1,5 @@
 import type { ResolvedPlace } from "../types";
+import { haversineMeters } from "./geo";
 
 const RADIUS_METERS = 75; // same radius as the Google Places lookup
 
@@ -14,22 +15,6 @@ const OSM_AMENITY_TO_TYPE: Record<string, string> = {
   fast_food: "meal_takeaway",
 };
 
-function haversineMeters(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number
-): number {
-  const R = 6371000;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(a));
-}
-
 interface OverpassElement {
   type: string;
   id: number;
@@ -37,6 +22,13 @@ interface OverpassElement {
   lon?: number;
   center?: { lat: number; lon: number };
   tags?: Record<string, string>;
+}
+
+interface OverpassCandidate {
+  el: OverpassElement;
+  lat: number;
+  lon: number;
+  distance: number;
 }
 
 /**
@@ -50,6 +42,88 @@ export async function resolveOsmPlace(
   latitude: number,
   longitude: number
 ): Promise<ResolvedPlace | null> {
+  const withDistance = await fetchOsmCandidates(latitude, longitude);
+  const nearest = withDistance[0];
+  if (!nearest) return null;
+  return toOsmResolvedPlace(nearest);
+}
+
+/**
+ * Up to 10 nearby food places, nearest first - the OSM-fallback data
+ * behind resolveOsmPlace() plus the alternatives RestaurantPicker.tsx
+ * offers when the top pick is wrong and no Google key is configured.
+ */
+export async function searchNearbyOsmPlaces(
+  latitude: number,
+  longitude: number
+): Promise<ResolvedPlace[]> {
+  const withDistance = await fetchOsmCandidates(latitude, longitude);
+  return withDistance.map(toOsmResolvedPlace);
+}
+
+/**
+ * OSM-fallback for RestaurantPicker.tsx's "Other" path - OpenStreetMap's
+ * Nominatim geocoder (free, keyless), searched by name and biased toward
+ * the visit's coordinates via a viewbox. No amenity/food-type filter -
+ * this is an explicit user-typed name, trust the query.
+ */
+export async function searchOsmPlacesByText(
+  query: string,
+  latitude: number,
+  longitude: number
+): Promise<ResolvedPlace[]> {
+  const url = new URL("https://nominatim.openstreetmap.org/search");
+  url.searchParams.set("q", query);
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("limit", "5");
+  // Biases (doesn't restrict) results toward the visit's area - roughly a
+  // 5km box, generous enough that a real nearby match isn't excluded.
+  const delta = 0.05;
+  url.searchParams.set(
+    "viewbox",
+    `${longitude - delta},${latitude + delta},${longitude + delta},${latitude - delta}`
+  );
+
+  const response = await fetch(url.toString(), {
+    headers: {
+      // Required by Nominatim's usage policy for identifying non-browser
+      // clients - same convention as the Overpass call below.
+      "User-Agent": "foodie-journey (personal restaurant diary app)",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Nominatim API error: ${response.status}`);
+  }
+
+  const raw = await response.text();
+  let data: any;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    throw new Error(
+      "Nominatim API returned a non-JSON response (the public server may be overloaded - try again)"
+    );
+  }
+  const results: any[] = Array.isArray(data) ? data : [];
+
+  return results.map((r) => ({
+    // Visit ids are `${placeId}-${firstPhotoTimestamp}` (see
+    // clusterVisits.ts) and get split back apart on "-", so this can't
+    // contain a hyphen the way an OSM "type/id" pair naturally would.
+    placeId: `osm_${r.osm_type}_${r.osm_id}`,
+    name: r.name || r.display_name?.split(",")[0] || "Unknown place",
+    address: r.display_name ?? "",
+    latitude: parseFloat(r.lat),
+    longitude: parseFloat(r.lon),
+    types: [],
+  }));
+}
+
+async function fetchOsmCandidates(
+  latitude: number,
+  longitude: number
+): Promise<OverpassCandidate[]> {
   const amenities = Object.keys(OSM_AMENITY_TO_TYPE).join("|");
   const query = `
     [out:json][timeout:10];
@@ -94,27 +168,26 @@ export async function resolveOsmPlace(
     );
   }
   const elements: OverpassElement[] = data.elements ?? [];
-  if (elements.length === 0) return null;
+  if (elements.length === 0) return [];
 
   // Overpass doesn't sort by distance - pick the nearest match ourselves.
-  const withDistance = elements
+  return elements
     .map((el) => {
       const lat = el.lat ?? el.center?.lat;
       const lon = el.lon ?? el.center?.lon;
       if (lat == null || lon == null) return null;
       return { el, lat, lon, distance: haversineMeters(latitude, longitude, lat, lon) };
     })
-    .filter((r): r is { el: OverpassElement; lat: number; lon: number; distance: number } => r != null)
+    .filter((r): r is OverpassCandidate => r != null)
     .sort((a, b) => a.distance - b.distance);
+}
 
-  const nearest = withDistance[0];
-  if (!nearest) return null;
-
-  const amenity = nearest.el.tags?.amenity;
+function toOsmResolvedPlace(entry: OverpassCandidate): ResolvedPlace {
+  const amenity = entry.el.tags?.amenity;
   const type = amenity ? OSM_AMENITY_TO_TYPE[amenity] : undefined;
   const address = [
-    nearest.el.tags?.["addr:housenumber"],
-    nearest.el.tags?.["addr:street"],
+    entry.el.tags?.["addr:housenumber"],
+    entry.el.tags?.["addr:street"],
   ]
     .filter(Boolean)
     .join(" ");
@@ -123,11 +196,11 @@ export async function resolveOsmPlace(
     // Visit ids are `${placeId}-${firstPhotoTimestamp}` (see
     // clusterVisits.ts) and get split back apart on "-", so this can't
     // contain a hyphen the way an OSM "type/id" pair naturally would.
-    placeId: `osm_${nearest.el.type}_${nearest.el.id}`,
-    name: nearest.el.tags?.name ?? "Unknown place",
+    placeId: `osm_${entry.el.type}_${entry.el.id}`,
+    name: entry.el.tags?.name ?? "Unknown place",
     address,
-    latitude: nearest.lat,
-    longitude: nearest.lon,
+    latitude: entry.lat,
+    longitude: entry.lon,
     types: type ? [type] : [],
   };
 }

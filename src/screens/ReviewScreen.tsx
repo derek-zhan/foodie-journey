@@ -15,6 +15,7 @@ import { extractPhotoMetadata } from "../pipeline/extractPhotoMetadata";
 import { clusterVisits } from "../pipeline/clusterVisits";
 import { useAssetThumbnails } from "../hooks/useAssetThumbnails";
 import JournalForm from "../components/JournalForm";
+import RestaurantPicker from "../components/RestaurantPicker";
 import { startOfToday, isToday } from "../pipeline/todayWindow";
 
 export default function ReviewScreen() {
@@ -54,7 +55,12 @@ export default function ReviewScreen() {
         keyExtractor={(v) => v.id}
         renderItem={({ item }) => (
           <View style={styles.card}>
-            <Text style={styles.place}>{item.place.name}</Text>
+            <RestaurantPicker
+              visit={item}
+              onSaved={() =>
+                setVisits(listVisits().filter((v) => isToday(v.startedAt)))
+              }
+            />
             <Text style={styles.meta}>
               {item.photoIds.length} photo
               {item.photoIds.length === 1 ? "" : "s"}
@@ -110,7 +116,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#f2f2f2",
     marginBottom: 10,
   },
-  place: { fontSize: 16, fontWeight: "600" },
   meta: { fontSize: 13, color: "#666", marginTop: 2 },
   tags: { fontSize: 12, color: "#888", marginTop: 4 },
   thumbRow: { marginTop: 8 },
