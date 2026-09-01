@@ -66,15 +66,35 @@ backend proxy).
 
 ## Testing
 
-`npm test` runs the functional tests that exist so far — both hit a live
-public API (not mocked), so neither is part of CI; run them manually when
-touching the place-resolution pipeline:
+`npm test` runs the functional tests that exist so far — all hit a live
+public API (not mocked), so none are part of CI; run them manually when
+touching the place-resolution or journaling pipeline:
 - `clusterVisits.functional.test.ts` — a hardcoded known-good coordinate
 - `scanLocalTestPhotos.functional.test.ts` — drop your own photos (real
   EXIF GPS data) into a `.test/` folder at the project root and it runs
   them through the real pipeline instead. That folder is gitignored (real
   personal photos, real locations) and the test just skips if it's empty,
   so this is opt-in per developer
+- `reviewToday.functional.test.ts` — same `.test/` photos, retimed to
+  "now" so they exercise the Review screen's "today only" filter, then
+  runs the resolved visit through the real `journalVisit()` Claude call
+  too (skipped if `EXPO_PUBLIC_ANTHROPIC_API_KEY` isn't set to a real key)
+
+`jest.setup.js` loads `.env` before any test runs (via `@expo/env`, the
+same loader `expo start` uses) — without it, Jest's plain Node process
+never sees `EXPO_PUBLIC_*` at all.
+
+### Local web dev with `.test/` photos
+
+Since a browser has no device photo library, `npm run web` would
+otherwise always show an empty Diary/Review with nothing to scan. In
+local dev only, `extractPhotoMetadata.ts` instead fetches from a route
+`scripts/webDev.js`'s proxy serves (`/__test-photos`), which live-reads
+the same `.test/` folder above via `exifr` on every request — drop a
+photo in, hit Refresh, see it flow through the real pipeline. This is
+gated on `Platform.OS === "web" && __DEV__`, so it's compiled out of any
+production/release build the same way React strips its own dev-only
+warnings — not just unused in practice, structurally unreachable.
 
 ## Not yet built
 
