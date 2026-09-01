@@ -1,16 +1,21 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
   FlatList,
+  ScrollView,
   StyleSheet,
   Button,
   Alert,
   TextInput,
 } from "react-native";
+import { Image } from "expo-image";
 import type { Visit } from "../types";
 import { listVisits, upsertScannedVisit, upsertVisit } from "../db/visitStore";
-import { extractPhotoMetadata } from "../pipeline/extractPhotoMetadata";
+import {
+  extractPhotoMetadata,
+  getAssetThumbnailUri,
+} from "../pipeline/extractPhotoMetadata";
 import { clusterVisits } from "../pipeline/clusterVisits";
 import { journalVisit } from "../pipeline/journalVisit";
 
@@ -20,10 +25,33 @@ export default function DiaryScreen() {
   const [journalingId, setJournalingId] = useState<string | null>(null);
   const [transcriptDraft, setTranscriptDraft] = useState("");
   const [savingId, setSavingId] = useState<string | null>(null);
+  // photoId -> displayable uri, or null once resolution has failed (asset
+  // deleted from the device, permission revoked since the scan, etc.)
+  const [thumbnails, setThumbnails] = useState<Record<string, string | null>>(
+    {}
+  );
+  // Tracks which photoIds resolution has already been kicked off for,
+  // independent of the (async, arrives-later) `thumbnails` state - so this
+  // effect can depend on just `visits` without re-requesting on every
+  // thumbnail that resolves.
+  const requestedThumbnailIds = useRef(new Set<string>());
 
   useEffect(() => {
     setVisits(listVisits());
   }, []);
+
+  useEffect(() => {
+    const idsToResolve = Array.from(
+      new Set(visits.flatMap((v) => v.photoIds))
+    ).filter((id) => !requestedThumbnailIds.current.has(id));
+
+    for (const id of idsToResolve) {
+      requestedThumbnailIds.current.add(id);
+      getAssetThumbnailUri(id).then((uri) => {
+        setThumbnails((prev) => ({ ...prev, [id]: uri }));
+      });
+    }
+  }, [visits]);
 
   function startJournaling(visit: Visit) {
     setJournalingId(visit.id);
@@ -92,6 +120,24 @@ export default function DiaryScreen() {
               {item.photoIds.length} photo
               {item.photoIds.length === 1 ? "" : "s"}
             </Text>
+            {item.photoIds.length > 0 ? (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.thumbRow}
+              >
+                {item.photoIds.map((id) =>
+                  thumbnails[id] ? (
+                    <Image
+                      key={id}
+                      source={{ uri: thumbnails[id]! }}
+                      style={styles.thumb}
+                    />
+                  ) : null
+                )}
+              </ScrollView>
+            ) : null}
+
             {item.notes ? <Text>{item.notes}</Text> : null}
             {item.tags?.length ? (
               <Text style={styles.tags}>{item.tags.join(" · ")}</Text>
@@ -144,6 +190,14 @@ const styles = StyleSheet.create({
   place: { fontSize: 16, fontWeight: "600" },
   meta: { fontSize: 13, color: "#666", marginTop: 2 },
   tags: { fontSize: 12, color: "#888", marginTop: 4 },
+  thumbRow: { marginTop: 8 },
+  thumb: {
+    width: 64,
+    height: 64,
+    borderRadius: 8,
+    marginRight: 8,
+    backgroundColor: "#e0e0e0",
+  },
   journalForm: { marginTop: 8, gap: 8 },
   input: {
     backgroundColor: "#fff",
