@@ -21,9 +21,15 @@ full pipeline description and current build status.
   isolation headers expo-sqlite's web backend needs — **open :8082, not
   :8081**. See the comment at the top of that file for why.
 
-There is no lint or test tooling configured in this repo yet (no eslint,
-jest, or prettier config present) — don't assume `npm test` or `npm run
-lint` exist.
+- `npm test` — runs Jest (`src/**/__tests__/*.test.ts`). Currently just
+  `clusterVisits.functional.test.ts` — a live functional test, not a unit
+  test: it makes a real network call and is NOT wired into CI (a flaky
+  public API shouldn't block unrelated PRs). See the file's own comment
+  before adding more tests in this style, and the note on jest.config.js
+  below before touching Jest config.
+
+There is no lint tooling configured in this repo yet (no eslint or
+prettier config present) — don't assume `npm run lint` exists.
 
 Environment: copy `.env.example` to `.env`. `EXPO_PUBLIC_ANTHROPIC_API_KEY`
 (journal structuring + diary Q&A) is checked lazily and throws if missing —
@@ -169,3 +175,18 @@ costing real time to track down after the fact.
 - `tsconfig.json` has `strict: true` — keep new code strict-clean.
 - Never commit a real Google Places API key; `.env` is gitignored, only
   `.env.example` should be tracked.
+- `jest.config.js` deliberately does NOT use the `jest-expo` preset, even
+  though `babel-preset-expo`/`babel.config.js` are present (added for
+  Jest's sake - this project has no other reason to need a root babel
+  config, since Metro doesn't require one). `jest-expo`'s React Native
+  test environment stubs/mocks `fetch` for hermetic component testing,
+  which silently broke the live functional test above (real requests came
+  back as empty non-responses, not errors). Plain `testEnvironment: "node"`
+  has real global `fetch`; the only thing actually needed from Expo's
+  tooling is `transformIgnorePatterns` allowing `node_modules/expo/` to be
+  babel-transformed, because `EXPO_PUBLIC_*` env-var inlining pulls in a
+  real-but-ESM-syntax file (`expo/virtual/env.js`) that Jest's default
+  "skip all of node_modules" transform setting skips. If you ever add
+  component/hook tests that need React Native's test environment, that's
+  a real reason to reach for `jest-expo` — just know it may reintroduce
+  this fetch-mocking behavior for any test that needs live network.

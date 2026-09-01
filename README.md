@@ -53,6 +53,14 @@ Note: both keys are `EXPO_PUBLIC_*` and ship inside the client bundle —
 fine for this exploratory build, not for a distributed app (would need a
 backend proxy).
 
+## Testing
+
+`npm test` runs the one functional test that exists so far: mocks a
+photo's EXIF coordinates and confirms `clusterVisits` → `resolvePlace`
+actually resolves them to a real nearby restaurant. It hits a live
+public API (not mocked), so it's not part of CI — run it manually when
+touching the place-resolution pipeline.
+
 ## Not yet built
 
 - Voice *capture* (speech-to-text) — journaling currently takes pasted/typed

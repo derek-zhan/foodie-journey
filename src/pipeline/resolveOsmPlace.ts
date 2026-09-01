@@ -62,7 +62,16 @@ export async function resolveOsmPlace(
 
   const response = await fetch("https://overpass-api.de/api/interpreter", {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      // Without an explicit Accept, Apache's content negotiation on the
+      // public Overpass server 406s the request outright - found via a
+      // real failing fetch (Node's default fetch sends no Accept header),
+      // not a hypothetical. User-Agent is also part of Overpass's own
+      // usage policy for identifying non-browser clients.
+      Accept: "*/*",
+      "User-Agent": "foodie-journey (personal restaurant diary app)",
+    },
     body: `data=${encodeURIComponent(query)}`,
   });
 
