@@ -62,11 +62,15 @@ backend proxy).
 
 ## Testing
 
-`npm test` runs the one functional test that exists so far: mocks a
-photo's EXIF coordinates and confirms `clusterVisits` → `resolvePlace`
-actually resolves them to a real nearby restaurant. It hits a live
-public API (not mocked), so it's not part of CI — run it manually when
-touching the place-resolution pipeline.
+`npm test` runs the functional tests that exist so far — both hit a live
+public API (not mocked), so neither is part of CI; run them manually when
+touching the place-resolution pipeline:
+- `clusterVisits.functional.test.ts` — a hardcoded known-good coordinate
+- `scanLocalTestPhotos.functional.test.ts` — drop your own photos (real
+  EXIF GPS data) into a `.test/` folder at the project root and it runs
+  them through the real pipeline instead. That folder is gitignored (real
+  personal photos, real locations) and the test just skips if it's empty,
+  so this is opt-in per developer
 
 ## Not yet built
 

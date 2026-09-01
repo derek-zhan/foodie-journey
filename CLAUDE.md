@@ -21,12 +21,16 @@ full pipeline description and current build status.
   isolation headers expo-sqlite's web backend needs — **open :8082, not
   :8081**. See the comment at the top of that file for why.
 
-- `npm test` — runs Jest (`src/**/__tests__/*.test.ts`). Currently just
-  `clusterVisits.functional.test.ts` — a live functional test, not a unit
-  test: it makes a real network call and is NOT wired into CI (a flaky
-  public API shouldn't block unrelated PRs). See the file's own comment
-  before adding more tests in this style, and the note on jest.config.js
-  below before touching Jest config.
+- `npm test` — runs Jest (`src/**/__tests__/*.test.ts`). Both existing
+  tests are live functional tests, not unit tests: real network calls,
+  NOT wired into CI (a flaky public API shouldn't block unrelated PRs).
+  See each file's own comment before adding more tests in this style, and
+  the note on jest.config.js below before touching Jest config.
+  - `clusterVisits.functional.test.ts` — a hardcoded known-good coordinate
+  - `scanLocalTestPhotos.functional.test.ts` — drop real photos (with real
+    EXIF GPS) into a gitignored `/.test` folder at the project root and
+    this runs them through the real pipeline instead; skips (doesn't
+    fail) when that folder is empty/absent, so a fresh clone is unaffected
 
 There is no lint tooling configured in this repo yet (no eslint or
 prettier config present) — don't assume `npm run lint` exists.
