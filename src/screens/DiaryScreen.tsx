@@ -21,6 +21,7 @@ import JournalForm from "../components/JournalForm";
 import RestaurantPicker from "../components/RestaurantPicker";
 import BrandIcon from "../components/BrandIcon";
 import PhotoCaptionOverlay from "../components/PhotoCaptionOverlay";
+import StoryExportOverlay from "../components/StoryExportOverlay";
 import { colors, radii, shadow } from "../theme";
 
 // OpenTable has no mark in the Simple Icons set BrandIcon draws from, so it
@@ -66,9 +67,11 @@ export default function DiaryScreen() {
   const [visits, setVisits] = useState<Visit[]>([]);
   const [loading, setLoading] = useState(false);
   const [captionVisitId, setCaptionVisitId] = useState<string | null>(null);
+  const [storyVisitId, setStoryVisitId] = useState<string | null>(null);
   const thumbnails = useAssetThumbnails(visits);
   const sections = useMemo(() => groupByDate(visits), [visits]);
   const captionVisit = visits.find((v) => v.id === captionVisitId) ?? null;
+  const storyVisit = visits.find((v) => v.id === storyVisitId) ?? null;
 
   function saveCaptions(visitId: string, captions: Record<string, string>) {
     updatePhotoCaptions(visitId, captions);
@@ -193,10 +196,21 @@ export default function DiaryScreen() {
             ) : null}
 
             <View style={styles.journalSlot}>
-              <JournalForm
-                visit={item}
-                onSaved={() => setVisits(listVisits())}
-              />
+              <View style={styles.journalFormSlot}>
+                <JournalForm
+                  visit={item}
+                  onSaved={() => setVisits(listVisits())}
+                />
+              </View>
+              {item.photoIds.some((id) => thumbnails[id]) ? (
+                <TouchableOpacity
+                  style={styles.storyButton}
+                  accessibilityLabel={`Create an Instagram story for ${item.place.name}`}
+                  onPress={() => setStoryVisitId(item.id)}
+                >
+                  <BrandIcon brand="instagram" size={18} />
+                </TouchableOpacity>
+              ) : null}
             </View>
           </View>
         )}
@@ -214,6 +228,11 @@ export default function DiaryScreen() {
         thumbnails={thumbnails}
         onClose={() => setCaptionVisitId(null)}
         onSave={saveCaptions}
+      />
+      <StoryExportOverlay
+        visit={storyVisit}
+        thumbnails={thumbnails}
+        onClose={() => setStoryVisitId(null)}
       />
     </View>
   );
@@ -250,6 +269,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   opentableBadgeText: { fontSize: 9, fontWeight: "700", color: OPENTABLE_RED },
+  storyButton: {
+    width: 46,
+    height: 46,
+    borderRadius: radii.pill,
+    backgroundColor: colors.accentSoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   notes: { fontSize: 14, color: colors.text, marginTop: 4, lineHeight: 20 },
   sectionHeader: {
     fontSize: 13,
@@ -288,7 +315,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   captionBadgeText: { fontSize: 11, fontWeight: "700", color: "#fff" },
-  journalSlot: { marginTop: 6 },
+  journalSlot: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginTop: 6 },
+  journalFormSlot: { flex: 1 },
   empty: { alignItems: "center", paddingTop: 60, paddingHorizontal: 32 },
   emptyIcon: { fontSize: 40, marginBottom: 12 },
   emptyText: { textAlign: "center", color: colors.textMuted, fontSize: 15, lineHeight: 22 },
