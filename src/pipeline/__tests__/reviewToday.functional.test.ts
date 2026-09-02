@@ -8,17 +8,18 @@ import { isToday } from "../todayWindow";
 import type { PhotoAsset } from "../../types";
 
 /**
- * Live functional test for the Review screen ("today's restaurants" +
- * voice journaling), same spirit as scanLocalTestPhotos.functional.test.ts
- * but exercising the Review-specific path end to end: it reads the same
- * .test/ photos live (real EXIF GPS, via exifr - nothing hardcoded), retimes
- * each one to "now" (photos in .test/ are real past outings, not literally
- * from today - only the clock is faked, the location data is real) so they
- * pass ReviewScreen's isToday() filter, runs them through the real
- * clusterVisits -> resolvePlace pipeline, and - if EXPO_PUBLIC_ANTHROPIC_API_KEY
- * is a real key - journals the first resolved visit with a sample
- * transcript through the real journalVisit() Claude call, proving the full
- * dictate -> Claude structuring -> tags/notes/rating loop works.
+ * Live functional test for "today's restaurants" detection + voice
+ * journaling (the behavior the diary screen's scan covers for today's
+ * visits), same spirit as scanLocalTestPhotos.functional.test.ts but
+ * exercising that path end to end: it reads the same .test/ photos live
+ * (real EXIF GPS, via exifr - nothing hardcoded), retimes each one to "now"
+ * (photos in .test/ are real past outings, not literally from today - only
+ * the clock is faked, the location data is real) so they pass isToday(),
+ * runs them through the real clusterVisits -> resolvePlace pipeline, and -
+ * if EXPO_PUBLIC_ANTHROPIC_API_KEY is a real key - journals the first
+ * resolved visit with a sample transcript through the real journalVisit()
+ * Claude call, proving the full dictate -> Claude structuring ->
+ * tags/notes/rating loop works.
  *
  * Same conventions as scanLocalTestPhotos: skips (doesn't fail) when
  * .test/ is empty/absent, not wired into CI (live network + live LLM call).
@@ -33,7 +34,7 @@ const describeIfPhotosPresent =
   testPhotoFiles.length > 0 ? describe : describe.skip;
 
 describeIfPhotosPresent(
-  "Review screen - functional (real local photos in .test/, retimed to today)",
+  "Today's visits - functional (real local photos in .test/, retimed to today)",
   () => {
     it("detects today's visits from real GPS data and journals one via Claude", async () => {
       const photos: PhotoAsset[] = [];

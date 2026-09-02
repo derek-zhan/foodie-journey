@@ -48,9 +48,9 @@ export type JournalEntry = z.infer<typeof JournalEntrySchema>;
  *
  * Takes a raw transcript for a visit and structures it into diary notes +
  * tags + an optional rating. The transcript itself comes from a plain
- * TextInput (DiaryScreen/ReviewScreen) - voice capture is the OS keyboard's
- * built-in dictation typing into that field, not a speech-to-text call in
- * this pipeline.
+ * TextInput (DiaryScreen) - voice capture is the OS keyboard's built-in
+ * dictation typing into that field, not a speech-to-text call in this
+ * pipeline.
  */
 export async function journalVisit(
   transcript: string,

@@ -3,9 +3,9 @@ import {
   View,
   Text,
   FlatList,
+  RefreshControl,
   ScrollView,
   StyleSheet,
-  Button,
   Alert,
 } from "react-native";
 import { Image } from "expo-image";
@@ -23,7 +23,7 @@ export default function DiaryScreen() {
   const thumbnails = useAssetThumbnails(visits);
 
   useEffect(() => {
-    setVisits(listVisits());
+    runScan();
   }, []);
 
   async function runScan() {
@@ -48,15 +48,13 @@ export default function DiaryScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.header}>Foodie Journey</Text>
-      <Button
-        title={loading ? "Scanning…" : "Scan recent photos"}
-        onPress={runScan}
-        disabled={loading}
-      />
       <FlatList
         style={styles.list}
         data={visits}
         keyExtractor={(v) => v.id}
+        refreshControl={
+          <RefreshControl refreshing={loading} onRefresh={runScan} />
+        }
         renderItem={({ item }) => (
           <View style={styles.card}>
             <RestaurantPicker
@@ -99,8 +97,7 @@ export default function DiaryScreen() {
         )}
         ListEmptyComponent={
           <Text style={styles.empty}>
-            No visits yet — tap "Scan recent photos" to detect restaurants
-            from your photo library.
+            No visits yet — pull down to scan your photo library.
           </Text>
         }
       />
@@ -109,7 +106,7 @@ export default function DiaryScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingTop: 16, paddingHorizontal: 16 },
+  container: { flex: 1, paddingTop: 60, paddingHorizontal: 16 },
   header: { fontSize: 22, fontWeight: "600", marginBottom: 12 },
   list: { marginTop: 16 },
   card: {
