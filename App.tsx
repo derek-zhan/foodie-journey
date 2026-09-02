@@ -1,9 +1,17 @@
 import React, { useEffect, useState } from "react";
-import { View, Button, Modal, TouchableOpacity, Text, StyleSheet } from "react-native";
+import {
+  View,
+  Modal,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  Text,
+  StyleSheet,
+} from "react-native";
 import { StatusBar } from "expo-status-bar";
 import DiaryScreen from "./src/screens/DiaryScreen";
 import AskDiaryScreen from "./src/screens/AskDiaryScreen";
 import { initDb } from "./src/db/visitStore";
+import { colors, radii, shadow } from "./src/theme";
 
 export default function App() {
   const [askVisible, setAskVisible] = useState(false);
@@ -25,15 +33,22 @@ export default function App() {
 
       <Modal
         visible={askVisible}
-        animationType="slide"
+        animationType="fade"
+        transparent
         onRequestClose={() => setAskVisible(false)}
       >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Button title="Close" onPress={() => setAskVisible(false)} />
-          </View>
-          <AskDiaryScreen />
-        </View>
+        <TouchableOpacity
+          style={styles.backdrop}
+          activeOpacity={1}
+          onPress={() => setAskVisible(false)}
+        >
+          <TouchableWithoutFeedback>
+            <View style={styles.sheet}>
+              <View style={styles.grabber} />
+              <AskDiaryScreen />
+            </View>
+          </TouchableWithoutFeedback>
+        </TouchableOpacity>
       </Modal>
 
       <StatusBar style="auto" />
@@ -42,28 +57,38 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
+  root: { flex: 1, backgroundColor: colors.bg },
   fab: {
     position: "absolute",
     right: 20,
     bottom: 32,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "#222",
+    width: 58,
+    height: 58,
+    borderRadius: radii.pill,
+    backgroundColor: colors.accent,
     alignItems: "center",
     justifyContent: "center",
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
+    ...shadow.fab,
   },
-  fabIcon: { fontSize: 26 },
-  modalContainer: { flex: 1, paddingTop: 60 },
-  modalHeader: {
-    alignItems: "flex-end",
-    paddingHorizontal: 16,
-    marginBottom: 8,
+  fabIcon: { fontSize: 24 },
+  backdrop: {
+    flex: 1,
+    backgroundColor: colors.overlay,
+    justifyContent: "flex-end",
+  },
+  sheet: {
+    height: "78%",
+    backgroundColor: colors.bg,
+    borderTopLeftRadius: radii.lg,
+    borderTopRightRadius: radii.lg,
+    overflow: "hidden",
+  },
+  grabber: {
+    width: 40,
+    height: 5,
+    borderRadius: radii.pill,
+    backgroundColor: colors.border,
+    alignSelf: "center",
+    marginTop: 10,
   },
 });
