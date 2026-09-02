@@ -31,9 +31,11 @@ export function initDb() {
       notes TEXT,
       rating INTEGER,
       tags TEXT,
-      confirmed INTEGER NOT NULL DEFAULT 0
+      confirmed INTEGER NOT NULL DEFAULT 0,
+      photoCaptions TEXT
     );
   `);
+  ensurePhotoCaptionsColumn(db);
 
   // Full-text index over each visit's searchable text (place name + notes
   // + tags) - powers rag/searchDiary.ts's retrieval step, entirely local
@@ -49,6 +51,18 @@ export function initDb() {
   `);
 
   backfillFtsIndex(db);
+}
+
+// CREATE TABLE IF NOT EXISTS is a no-op against a visits table that already
+// existed before photoCaptions was added to the schema above - ALTER TABLE
+// is the only way to add it to those already-created on-device DBs.
+function ensurePhotoCaptionsColumn(database: SQLite.SQLiteDatabase) {
+  const columns = database.getAllSync<{ name: string }>(
+    `PRAGMA table_info(visits);`
+  );
+  if (!columns.some((c) => c.name === "photoCaptions")) {
+    database.execSync(`ALTER TABLE visits ADD COLUMN photoCaptions TEXT;`);
+  }
 }
 
 // One-time-per-launch catch-up: a visits_fts row only gets written by
@@ -107,6 +121,7 @@ function rowToVisit(row: any): Visit {
     rating: row.rating ?? undefined,
     tags: JSON.parse(row.tags ?? "[]"),
     confirmed: !!row.confirmed,
+    photoCaptions: row.photoCaptions ? JSON.parse(row.photoCaptions) : undefined,
   };
 }
 
@@ -117,8 +132,8 @@ function rowToVisit(row: any): Visit {
 function writeVisitRow(database: SQLite.SQLiteDatabase, visit: Visit) {
   database.runSync(
     `INSERT INTO visits
-      (id, placeName, address, latitude, longitude, photoIds, startedAt, endedAt, transcript, notes, rating, tags, confirmed)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, placeName, address, latitude, longitude, photoIds, startedAt, endedAt, transcript, notes, rating, tags, confirmed, photoCaptions)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
       placeName=excluded.placeName,
       address=excluded.address,
@@ -131,7 +146,8 @@ function writeVisitRow(database: SQLite.SQLiteDatabase, visit: Visit) {
       notes=excluded.notes,
       rating=excluded.rating,
       tags=excluded.tags,
-      confirmed=excluded.confirmed;`,
+      confirmed=excluded.confirmed,
+      photoCaptions=excluded.photoCaptions;`,
     [
       visit.id,
       visit.place.name,
@@ -146,6 +162,7 @@ function writeVisitRow(database: SQLite.SQLiteDatabase, visit: Visit) {
       visit.rating ?? null,
       visit.tags ? JSON.stringify(visit.tags) : null,
       visit.confirmed ? 1 : 0,
+      visit.photoCaptions ? JSON.stringify(visit.photoCaptions) : null,
     ]
   );
 
@@ -215,6 +232,34 @@ export function updateVisitPlace(visit: Visit, newPlace: ResolvedPlace): Visit {
   return updated;
 }
 
+/**
+ * Saves per-photo captions from the overlay (DiaryScreen's thumbnail row).
+ * Reads the current row first and overwrites just photoCaptions, the same
+ * "merge one field, write the whole row" shape as updateVisitPlace - a
+ * plain upsertVisit(visit) from a stale in-memory Visit would silently
+ * clobber any journal edit made while the overlay was open.
+ */
+export function updatePhotoCaptions(
+  visitId: string,
+  photoCaptions: Record<string, string>
+): Visit {
+  if (!db) {
+    const existing = memoryVisits.get(visitId);
+    if (!existing) throw new Error(`No visit found for id ${visitId}`);
+    const updated: Visit = { ...existing, photoCaptions };
+    memoryVisits.set(visitId, updated);
+    return updated;
+  }
+
+  const row = db.getFirstSync<any>(`SELECT * FROM visits WHERE id = ?;`, [
+    visitId,
+  ]);
+  if (!row) throw new Error(`No visit found for id ${visitId}`);
+  const updated: Visit = { ...rowToVisit(row), photoCaptions };
+  db.withTransactionSync(() => writeVisitRow(db, updated));
+  return updated;
+}
+
 // Re-scan = never let it clobber an existing journal entry or the
 // place/photo/time identity it was created with (both write-once, same
 // as the original pre-FTS5 design - just enforced in JS now instead of
@@ -234,6 +279,7 @@ function mergeRescannedVisit(incoming: Visit, existing: Visit | null): Visit {
     rating: incoming.rating ?? existing.rating,
     tags: incoming.tags ?? existing.tags,
     confirmed: incoming.confirmed || existing.confirmed,
+    photoCaptions: incoming.photoCaptions ?? existing.photoCaptions,
   };
 }
 

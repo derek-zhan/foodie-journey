@@ -29,4 +29,7 @@ export interface Visit {
   rating?: number; // 1-5
   tags?: string[];
   confirmed: boolean; // user tapped "yes this is right"
+  // photoId -> caption, filled in from the per-photo overlay (DiaryScreen's
+  // thumbnail row). Absent/empty means no caption for that photo yet.
+  photoCaptions?: Record<string, string>;
 }

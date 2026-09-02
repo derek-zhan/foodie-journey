@@ -7,16 +7,31 @@ import {
   ScrollView,
   StyleSheet,
   Alert,
+  TouchableOpacity,
+  Linking,
 } from "react-native";
 import { Image } from "expo-image";
 import type { Visit } from "../types";
-import { listVisits, upsertScannedVisit } from "../db/visitStore";
+import { listVisits, upsertScannedVisit, updatePhotoCaptions } from "../db/visitStore";
 import { extractPhotoMetadata } from "../pipeline/extractPhotoMetadata";
 import { clusterVisits } from "../pipeline/clusterVisits";
+import { buildReviewLinks } from "../pipeline/reviewLinks";
 import { useAssetThumbnails } from "../hooks/useAssetThumbnails";
 import JournalForm from "../components/JournalForm";
 import RestaurantPicker from "../components/RestaurantPicker";
+import BrandIcon from "../components/BrandIcon";
+import PhotoCaptionOverlay from "../components/PhotoCaptionOverlay";
 import { colors, radii, shadow } from "../theme";
+
+// OpenTable has no mark in the Simple Icons set BrandIcon draws from, so it
+// gets a plain badge (in its own brand red) instead of an invented logo.
+const OPENTABLE_RED = "#DA3743";
+
+const REVIEW_LINKS: { key: keyof ReturnType<typeof buildReviewLinks>; label: string }[] = [
+  { key: "google", label: "Google" },
+  { key: "yelp", label: "Yelp" },
+  { key: "opentable", label: "OpenTable" },
+];
 
 // Visits arrive pre-sorted newest-first (listVisits() orders by startedAt
 // DESC), so grouping same-day visits just means folding consecutive runs
@@ -50,8 +65,15 @@ function groupByDate(visits: Visit[]): { title: string; data: Visit[] }[] {
 export default function DiaryScreen() {
   const [visits, setVisits] = useState<Visit[]>([]);
   const [loading, setLoading] = useState(false);
+  const [captionVisitId, setCaptionVisitId] = useState<string | null>(null);
   const thumbnails = useAssetThumbnails(visits);
   const sections = useMemo(() => groupByDate(visits), [visits]);
+  const captionVisit = visits.find((v) => v.id === captionVisitId) ?? null;
+
+  function saveCaptions(visitId: string, captions: Record<string, string>) {
+    updatePhotoCaptions(visitId, captions);
+    setVisits(listVisits());
+  }
 
   useEffect(() => {
     runScan();
@@ -105,10 +127,28 @@ export default function DiaryScreen() {
               visit={item}
               onSaved={() => setVisits(listVisits())}
             />
-            <Text style={styles.meta}>
-              {item.photoIds.length} photo
-              {item.photoIds.length === 1 ? "" : "s"}
-            </Text>
+            <View style={styles.metaRow}>
+              <Text style={styles.meta}>
+                {item.photoIds.length} photo
+                {item.photoIds.length === 1 ? "" : "s"}
+              </Text>
+              <View style={styles.reviewLinkRow}>
+                {REVIEW_LINKS.map(({ key, label }) => (
+                  <TouchableOpacity
+                    key={key}
+                    style={styles.reviewLinkIcon}
+                    accessibilityLabel={`Find ${item.place.name} on ${label}`}
+                    onPress={() => Linking.openURL(buildReviewLinks(item.place)[key])}
+                  >
+                    {key === "opentable" ? (
+                      <Text style={styles.opentableBadgeText}>OT</Text>
+                    ) : (
+                      <BrandIcon brand={key} size={14} />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
             {item.photoIds.length > 0 ? (
               <ScrollView
                 horizontal
@@ -117,11 +157,21 @@ export default function DiaryScreen() {
               >
                 {item.photoIds.map((id) =>
                   thumbnails[id] ? (
-                    <Image
+                    <TouchableOpacity
                       key={id}
-                      source={{ uri: thumbnails[id]! }}
-                      style={styles.thumb}
-                    />
+                      style={styles.thumbWrap}
+                      onPress={() => setCaptionVisitId(item.id)}
+                    >
+                      <Image
+                        source={{ uri: thumbnails[id]! }}
+                        style={styles.thumb}
+                      />
+                      {item.photoCaptions?.[id] ? (
+                        <View style={styles.captionBadge}>
+                          <Text style={styles.captionBadgeText}>✓</Text>
+                        </View>
+                      ) : null}
+                    </TouchableOpacity>
                   ) : null
                 )}
               </ScrollView>
@@ -159,6 +209,12 @@ export default function DiaryScreen() {
           </View>
         }
       />
+      <PhotoCaptionOverlay
+        visit={captionVisit}
+        thumbnails={thumbnails}
+        onClose={() => setCaptionVisitId(null)}
+        onSave={saveCaptions}
+      />
     </View>
   );
 }
@@ -177,7 +233,23 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     gap: 4,
   },
-  meta: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 2,
+  },
+  meta: { fontSize: 13, color: colors.textMuted },
+  reviewLinkRow: { flexDirection: "row", gap: 8 },
+  reviewLinkIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: radii.pill,
+    backgroundColor: colors.cardMuted,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  opentableBadgeText: { fontSize: 9, fontWeight: "700", color: OPENTABLE_RED },
   notes: { fontSize: 14, color: colors.text, marginTop: 4, lineHeight: 20 },
   sectionHeader: {
     fontSize: 13,
@@ -197,13 +269,25 @@ const styles = StyleSheet.create({
   },
   tagText: { fontSize: 12, color: colors.accent, fontWeight: "600" },
   thumbRow: { marginTop: 10 },
+  thumbWrap: { marginRight: 8 },
   thumb: {
     width: 70,
     height: 70,
     borderRadius: radii.sm,
-    marginRight: 8,
     backgroundColor: colors.cardMuted,
   },
+  captionBadge: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    width: 18,
+    height: 18,
+    borderRadius: radii.pill,
+    backgroundColor: colors.accent,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  captionBadgeText: { fontSize: 11, fontWeight: "700", color: "#fff" },
   journalSlot: { marginTop: 6 },
   empty: { alignItems: "center", paddingTop: 60, paddingHorizontal: 32 },
   emptyIcon: { fontSize: 40, marginBottom: 12 },
