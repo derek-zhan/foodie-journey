@@ -24,7 +24,7 @@ const exifr = require("exifr");
 // extractPhotoMetadata.ts always throws there on native builds). Reads the
 // same gitignored .test/ folder the functional tests use, live via exifr
 // (real GPS, nothing hardcoded) each request - no caching, so dropping a
-// new photo in and refreshing the Review/Diary screen picks it up
+// new photo in and refreshing the Review/Journey screen picks it up
 // immediately.
 //
 // Double-gated against ever reaching a real deployment: this script itself

@@ -88,7 +88,7 @@ export async function searchOsmPlacesByText(
     headers: {
       // Required by Nominatim's usage policy for identifying non-browser
       // clients - same convention as the Overpass call below.
-      "User-Agent": "foodie-journey (personal restaurant diary app)",
+      "User-Agent": "foodie-journey (personal restaurant journey app)",
     },
   });
 
@@ -144,7 +144,7 @@ async function fetchOsmCandidates(
       // not a hypothetical. User-Agent is also part of Overpass's own
       // usage policy for identifying non-browser clients.
       Accept: "*/*",
-      "User-Agent": "foodie-journey (personal restaurant diary app)",
+      "User-Agent": "foodie-journey (personal restaurant journey app)",
     },
     body: `data=${encodeURIComponent(query)}`,
   });

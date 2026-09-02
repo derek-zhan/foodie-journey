@@ -38,7 +38,7 @@ export function initDb() {
   ensurePhotoCaptionsColumn(db);
 
   // Full-text index over each visit's searchable text (place name + notes
-  // + tags) - powers rag/searchDiary.ts's retrieval step, entirely local
+  // + tags) - powers rag/searchJourney.ts's retrieval step, entirely local
   // (no embeddings, no external API). expo-sqlite ships FTS5 enabled by
   // default on both iOS and Android. Kept as its own virtual table and
   // resynced on every write rather than a visits column, so "what's
@@ -69,7 +69,7 @@ function ensurePhotoCaptionsColumn(database: SQLite.SQLiteDatabase) {
 // writeVisitRow, so any visit that was already journaled before this
 // virtual table existed (or before any particular row was last touched)
 // would otherwise be invisible to search forever, even though it's right
-// there in `visits`. Cheap at personal-diary scale; only inserts what's
+// there in `visits`. Cheap at personal-journey scale; only inserts what's
 // actually missing.
 function backfillFtsIndex(database: SQLite.SQLiteDatabase) {
   const indexed = new Set(
@@ -176,7 +176,7 @@ function writeVisitRow(database: SQLite.SQLiteDatabase, visit: Visit) {
 }
 
 /**
- * Deliberate write of exactly what's passed - e.g. DiaryScreen.saveJournal
+ * Deliberate write of exactly what's passed - e.g. JourneyScreen.saveJournal
  * saving a fresh journalVisit() result, including a legitimately-absent
  * rating clearing out a previous one. Does NOT protect against blanking
  * notes/tags/rating/confirmed - for the photo-rescan path, where the
@@ -233,7 +233,7 @@ export function updateVisitPlace(visit: Visit, newPlace: ResolvedPlace): Visit {
 }
 
 /**
- * Saves per-photo captions from the overlay (DiaryScreen's thumbnail row).
+ * Saves per-photo captions from the overlay (JourneyScreen's thumbnail row).
  * Reads the current row first and overwrites just photoCaptions, the same
  * "merge one field, write the whole row" shape as updateVisitPlace - a
  * plain upsertVisit(visit) from a stale in-memory Visit would silently
@@ -284,7 +284,7 @@ function mergeRescannedVisit(incoming: Visit, existing: Visit | null): Visit {
 }
 
 /**
- * Used only by DiaryScreen.runScan's re-detection loop. clusterVisits()
+ * Used only by JourneyScreen.runScan's re-detection loop. clusterVisits()
  * always produces a Visit with no journal fields at all, so a plain
  * upsertVisit here would silently wipe an existing journal entry - this
  * merges against any existing row first. See mergeRescannedVisit.

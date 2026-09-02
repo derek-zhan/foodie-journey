@@ -7,9 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 Foodie Journey (Expo/React Native, TypeScript). Iteration 1 goal: detect
-restaurant visits from geotagged photos and browse them as a diary. No
-posting to Google Maps/Yelp yet (that's phase 2). See README.md for the
-full pipeline description and current build status.
+restaurant visits from geotagged photos and browse them as a journey/
+timeline. No posting to Google Maps/Yelp yet (that's phase 2). See
+README.md for the full pipeline description and current build status.
 
 ## Commands
 
@@ -36,20 +36,20 @@ There is no lint tooling configured in this repo yet (no eslint or
 prettier config present) — don't assume `npm run lint` exists.
 
 Environment: copy `.env.example` to `.env`. `EXPO_PUBLIC_ANTHROPIC_API_KEY`
-(journal structuring + diary Q&A) is checked lazily and throws if missing —
+(journal structuring + journey Q&A) is checked lazily and throws if missing —
 no startup validation. `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` (requires "Places
 API (New)" enabled in Google Cloud Console) is optional — `resolvePlace.ts`
 falls back to OpenStreetMap/Overpass (no key) when it's unset or when the
 Google call fails; see `resolveOsmPlace.ts`. Both keys that exist are
 `EXPO_PUBLIC_*` and ship in the client bundle; see the caveat comment atop
-`journalVisit.ts`/`searchDiary.ts`. Diary search itself (`searchVisits` in
+`journalVisit.ts`/`searchJourney.ts`. Search itself (`searchVisits` in
 `visitStore.ts`) needs no key at all — it's local SQLite FTS5, not an
 embeddings API.
 
 ## Architecture
 
 Single linear pipeline, each stage a pure-ish async function in
-`src/pipeline/`, wired together and persisted from `src/screens/DiaryScreen.tsx`:
+`src/pipeline/`, wired together and persisted from `src/screens/JourneyScreen.tsx`:
 
 ```
 extractPhotoMetadata (src/pipeline/extractPhotoMetadata.ts)
@@ -63,7 +63,7 @@ extractPhotoMetadata (src/pipeline/extractPhotoMetadata.ts)
     real implementation. This bit natively too, not just on web - found
     while wiring up thumbnails. Same file also exports
     getAssetThumbnailUri(photoId) - resolves a stored photoId back to a
-    displayable uri (DiaryScreen uses it for the photo thumbnail row);
+    displayable uri (JourneyScreen uses it for the photo thumbnail row);
     returns null instead of throwing if the asset can't be resolved
     anymore (deleted, permission revoked since the scan)
 
@@ -88,7 +88,7 @@ resolvePlace (src/pipeline/resolvePlace.ts)
 journalVisit (src/pipeline/journalVisit.ts)
   → Claude API (`client.messages.parse` + a Zod `output_config.format`)
     turns a raw transcript into {notes, tags, rating}. Speech-to-text
-    capture itself isn't wired up — DiaryScreen collects the transcript
+    capture itself isn't wired up — JourneyScreen collects the transcript
     via a plain TextInput, so this stage is really just the "LLM
     structuring" half of the voice journal step
 
@@ -99,11 +99,11 @@ visitStore (src/db/visitStore.ts)
     Two write entry points, deliberately not one — see the comment on
     mergeRescannedVisit for why:
       • upsertVisit(visit) — writes exactly what's passed, full overwrite.
-        Used by DiaryScreen.saveJournal for deliberate journal edits,
+        Used by JourneyScreen.saveJournal for deliberate journal edits,
         where an absent field (e.g. Claude giving no rating this time)
         should genuinely clear the old value, not preserve it.
       • upsertScannedVisit(visit) — merges against any existing row first
-        (mergeRescannedVisit) before writing. Used only by DiaryScreen.
+        (mergeRescannedVisit) before writing. Used only by JourneyScreen.
         runScan's re-detection loop, where clusterVisits() always
         produces a Visit with no journal fields at all; place/photoIds/
         startedAt/endedAt are write-once and `confirmed` is sticky (OR,
@@ -119,10 +119,11 @@ visitStore (src/db/visitStore.ts)
 `Visit` and its sub-types (`PhotoAsset`, `ResolvedPlace`) are the shared
 data model, defined once in `src/types/index.ts`.
 
-`App.tsx` owns DB init (`initDb`) and a two-tab switch (no navigation
-library) between `DiaryScreen` (drives the scan → cluster → resolve
-pipeline, plus per-visit journal entry) and `AskDiaryScreen` (RAG query
-UI).
+`App.tsx` owns DB init (`initDb`) and renders `JourneyScreen` (drives the
+scan → cluster → resolve pipeline, plus per-visit journal entry) full-
+screen, with `AskJourneyScreen` (RAG query UI) opened on demand from a
+floating action button into a bottom-sheet modal — no navigation library,
+no tab bar.
 
 ### RAG layer (`src/rag/`)
 
@@ -130,17 +131,17 @@ A visit only becomes searchable once it's journaled — the FTS5 index is
 derived from the journaled `notes`/`tags`, not the raw photos/transcript,
 and is resynced by `writeVisitRow` (visitStore.ts, shared by both
 `upsertVisit` and `upsertScannedVisit`) every time a visit is written,
-including from `DiaryScreen.saveJournal` right after `journalVisit`
+including from `JourneyScreen.saveJournal` right after `journalVisit`
 returns.
 
 ```
-searchDiary.ts
+searchJourney.ts
   → findRelevantVisits(query): delegates straight to visitStore's
     searchVisits() (local SQLite FTS5 + bm25 ranking — see visitStore.ts
-    above; no embeddings, no external API). askDiary(query): feeds the
+    above; no embeddings, no external API). askJourney(query): feeds the
     top 5 results to Claude as numbered context and asks it to answer
     citing [n] — the "only from context" instruction is what keeps it
-    from inventing visits that aren't in the diary. Retrieval is
+    from inventing visits that aren't in the journey. Retrieval is
     lexical, not semantic: a query has to share actual words with a
     visit's notes/tags/place name to match
 ```

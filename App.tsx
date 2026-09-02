@@ -8,8 +8,8 @@ import {
   StyleSheet,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import DiaryScreen from "./src/screens/DiaryScreen";
-import AskDiaryScreen from "./src/screens/AskDiaryScreen";
+import JourneyScreen from "./src/screens/JourneyScreen";
+import AskJourneyScreen from "./src/screens/AskJourneyScreen";
 import { initDb } from "./src/db/visitStore";
 import { colors, radii, shadow } from "./src/theme";
 
@@ -22,7 +22,7 @@ export default function App() {
 
   return (
     <View style={styles.root}>
-      <DiaryScreen />
+      <JourneyScreen />
 
       <TouchableOpacity
         style={styles.fab}
@@ -45,7 +45,7 @@ export default function App() {
           <TouchableWithoutFeedback>
             <View style={styles.sheet}>
               <View style={styles.grabber} />
-              <AskDiaryScreen />
+              <AskJourneyScreen />
             </View>
           </TouchableWithoutFeedback>
         </TouchableOpacity>

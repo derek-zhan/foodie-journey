@@ -25,7 +25,7 @@ const JournalEntrySchema = z.object({
   notes: z
     .string()
     .describe(
-      "A short first-person diary note about the visit, cleaned up from the raw transcript but keeping the diner's own voice and opinions"
+      "A short first-person journal note about the visit, cleaned up from the raw transcript but keeping the diner's own voice and opinions"
     ),
   tags: z
     .array(z.string())
@@ -46,9 +46,9 @@ export type JournalEntry = z.infer<typeof JournalEntrySchema>;
 /**
  * Stage 5: Voice journal structuring
  *
- * Takes a raw transcript for a visit and structures it into diary notes +
+ * Takes a raw transcript for a visit and structures it into journal notes +
  * tags + an optional rating. The transcript itself comes from a plain
- * TextInput (DiaryScreen) - voice capture is the OS keyboard's built-in
+ * TextInput (JourneyScreen) - voice capture is the OS keyboard's built-in
  * dictation typing into that field, not a speech-to-text call in this
  * pipeline.
  */
@@ -64,7 +64,7 @@ export async function journalVisit(
     model: "claude-opus-5",
     max_tokens: 1024,
     system:
-      "You turn a spoken diary entry about a restaurant visit into clean, structured notes. Don't invent details that aren't in the transcript.",
+      "You turn a spoken journal entry about a restaurant visit into clean, structured notes. Don't invent details that aren't in the transcript.",
     messages: [
       {
         role: "user",

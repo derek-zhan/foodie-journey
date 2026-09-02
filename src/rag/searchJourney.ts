@@ -13,7 +13,7 @@ const client = new Anthropic({
     : undefined,
 });
 
-export interface DiaryAnswer {
+export interface JourneyAnswer {
   answer: string;
   sources: Visit[];
 }
@@ -29,12 +29,12 @@ export function findRelevantVisits(query: string): Visit[] {
 }
 
 /**
- * RAG over the diary: retrieves the most relevant journaled visits for a
+ * RAG over the journey: retrieves the most relevant journaled visits for a
  * natural-language query via local full-text search, then has Claude
  * answer using only those visits as context (so it can't invent visits
- * that aren't in the diary).
+ * that aren't in the journey).
  */
-export async function askDiary(query: string): Promise<DiaryAnswer> {
+export async function askJourney(query: string): Promise<JourneyAnswer> {
   const sources = findRelevantVisits(query);
   if (sources.length === 0) {
     return {
@@ -58,11 +58,11 @@ export async function askDiary(query: string): Promise<DiaryAnswer> {
     model: "claude-opus-5",
     max_tokens: 1024,
     system:
-      "You answer questions about the user's restaurant diary using only the visits given as context. Cite visits by their [n] number. If the context doesn't answer the question, say so plainly.",
+      "You answer questions about the user's restaurant journey using only the visits given as context. Cite visits by their [n] number. If the context doesn't answer the question, say so plainly.",
     messages: [
       {
         role: "user",
-        content: `Diary visits:\n${context}\n\nQuestion: ${query}`,
+        content: `Visits:\n${context}\n\nQuestion: ${query}`,
       },
     ],
   });

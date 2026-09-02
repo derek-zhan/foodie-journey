@@ -9,7 +9,7 @@ import type { PhotoAsset } from "../../types";
 
 /**
  * Live functional test for "today's restaurants" detection + voice
- * journaling (the behavior the diary screen's scan covers for today's
+ * journaling (the behavior the Journey screen's scan covers for today's
  * visits), same spirit as scanLocalTestPhotos.functional.test.ts but
  * exercising that path end to end: it reads the same .test/ photos live
  * (real EXIF GPS, via exifr - nothing hardcoded), retimes each one to "now"
