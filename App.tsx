@@ -1,15 +1,20 @@
 import React, { useEffect, useState } from "react";
-import { View, Button, StyleSheet } from "react-native";
+import {
+  View,
+  Modal,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  Text,
+  StyleSheet,
+} from "react-native";
 import { StatusBar } from "expo-status-bar";
 import DiaryScreen from "./src/screens/DiaryScreen";
-import ReviewScreen from "./src/screens/ReviewScreen";
 import AskDiaryScreen from "./src/screens/AskDiaryScreen";
 import { initDb } from "./src/db/visitStore";
-
-type Tab = "diary" | "review" | "ask";
+import { colors, radii, shadow } from "./src/theme";
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>("diary");
+  const [askVisible, setAskVisible] = useState(false);
 
   useEffect(() => {
     initDb();
@@ -17,41 +22,73 @@ export default function App() {
 
   return (
     <View style={styles.root}>
-      <View style={styles.tabBar}>
-        <Button
-          title="Diary"
-          onPress={() => setTab("diary")}
-          color={tab === "diary" ? undefined : "#888"}
-        />
-        <Button
-          title="Review"
-          onPress={() => setTab("review")}
-          color={tab === "review" ? undefined : "#888"}
-        />
-        <Button
-          title="Ask"
-          onPress={() => setTab("ask")}
-          color={tab === "ask" ? undefined : "#888"}
-        />
-      </View>
-      {tab === "diary" ? (
-        <DiaryScreen />
-      ) : tab === "review" ? (
-        <ReviewScreen />
-      ) : (
-        <AskDiaryScreen />
-      )}
+      <DiaryScreen />
+
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() => setAskVisible(true)}
+      >
+        <Text style={styles.fabIcon}>💬</Text>
+      </TouchableOpacity>
+
+      <Modal
+        visible={askVisible}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setAskVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.backdrop}
+          activeOpacity={1}
+          onPress={() => setAskVisible(false)}
+        >
+          <TouchableWithoutFeedback>
+            <View style={styles.sheet}>
+              <View style={styles.grabber} />
+              <AskDiaryScreen />
+            </View>
+          </TouchableWithoutFeedback>
+        </TouchableOpacity>
+      </Modal>
+
       <StatusBar style="auto" />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
-  tabBar: {
-    flexDirection: "row",
+  root: { flex: 1, backgroundColor: colors.bg },
+  fab: {
+    position: "absolute",
+    right: 20,
+    bottom: 32,
+    width: 58,
+    height: 58,
+    borderRadius: radii.pill,
+    backgroundColor: colors.accent,
+    alignItems: "center",
     justifyContent: "center",
-    gap: 24,
-    paddingTop: 60,
+    ...shadow.fab,
+  },
+  fabIcon: { fontSize: 24 },
+  backdrop: {
+    flex: 1,
+    backgroundColor: colors.overlay,
+    justifyContent: "flex-end",
+  },
+  sheet: {
+    height: "78%",
+    backgroundColor: colors.bg,
+    borderTopLeftRadius: radii.lg,
+    borderTopRightRadius: radii.lg,
+    overflow: "hidden",
+  },
+  grabber: {
+    width: 40,
+    height: 5,
+    borderRadius: radii.pill,
+    backgroundColor: colors.border,
+    alignSelf: "center",
+    marginTop: 10,
   },
 });

@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
-  FlatList,
+  SectionList,
+  RefreshControl,
   ScrollView,
   StyleSheet,
-  Button,
   Alert,
 } from "react-native";
 import { Image } from "expo-image";
@@ -16,14 +16,45 @@ import { clusterVisits } from "../pipeline/clusterVisits";
 import { useAssetThumbnails } from "../hooks/useAssetThumbnails";
 import JournalForm from "../components/JournalForm";
 import RestaurantPicker from "../components/RestaurantPicker";
+import { colors, radii, shadow } from "../theme";
+
+// Visits arrive pre-sorted newest-first (listVisits() orders by startedAt
+// DESC), so grouping same-day visits just means folding consecutive runs
+// that share a title - no separate sort/group-by-key pass needed.
+function sectionTitle(timestamp: number): string {
+  const d = new Date(timestamp);
+  if (d.toDateString() === new Date().toDateString()) {
+    return `TODAY · ${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+  }
+  return d.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function groupByDate(visits: Visit[]): { title: string; data: Visit[] }[] {
+  const sections: { title: string; data: Visit[] }[] = [];
+  for (const visit of visits) {
+    const title = sectionTitle(visit.startedAt);
+    const current = sections[sections.length - 1];
+    if (current && current.title === title) {
+      current.data.push(visit);
+    } else {
+      sections.push({ title, data: [visit] });
+    }
+  }
+  return sections;
+}
 
 export default function DiaryScreen() {
   const [visits, setVisits] = useState<Visit[]>([]);
   const [loading, setLoading] = useState(false);
   const thumbnails = useAssetThumbnails(visits);
+  const sections = useMemo(() => groupByDate(visits), [visits]);
 
   useEffect(() => {
-    setVisits(listVisits());
+    runScan();
   }, []);
 
   async function runScan() {
@@ -47,24 +78,34 @@ export default function DiaryScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>Foodie Journey</Text>
-      <Button
-        title={loading ? "Scanning…" : "Scan recent photos"}
-        onPress={runScan}
-        disabled={loading}
-      />
-      <FlatList
+      <View style={styles.headerBlock}>
+        <Text style={styles.header}>Foodie Journey</Text>
+        <Text style={styles.subheader}>Your recent food adventures</Text>
+      </View>
+      <SectionList
         style={styles.list}
-        data={visits}
+        contentContainerStyle={styles.listContent}
+        sections={sections}
         keyExtractor={(v) => v.id}
+        stickySectionHeadersEnabled={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={loading}
+            onRefresh={runScan}
+            tintColor={colors.accent}
+            colors={[colors.accent]}
+          />
+        }
+        renderSectionHeader={({ section }) => (
+          <Text style={styles.sectionHeader}>{section.title}</Text>
+        )}
         renderItem={({ item }) => (
-          <View style={styles.card}>
+          <View style={[styles.card, shadow.card]}>
             <RestaurantPicker
               visit={item}
               onSaved={() => setVisits(listVisits())}
             />
             <Text style={styles.meta}>
-              {new Date(item.startedAt).toLocaleDateString()} ·{" "}
               {item.photoIds.length} photo
               {item.photoIds.length === 1 ? "" : "s"}
             </Text>
@@ -86,22 +127,36 @@ export default function DiaryScreen() {
               </ScrollView>
             ) : null}
 
-            {item.notes ? <Text>{item.notes}</Text> : null}
+            {item.notes ? <Text style={styles.notes}>{item.notes}</Text> : null}
             {item.tags?.length ? (
-              <Text style={styles.tags}>{item.tags.join(" · ")}</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.tagRow}
+              >
+                {item.tags.map((tag) => (
+                  <View key={tag} style={styles.tagPill}>
+                    <Text style={styles.tagText}>{tag}</Text>
+                  </View>
+                ))}
+              </ScrollView>
             ) : null}
 
-            <JournalForm
-              visit={item}
-              onSaved={() => setVisits(listVisits())}
-            />
+            <View style={styles.journalSlot}>
+              <JournalForm
+                visit={item}
+                onSaved={() => setVisits(listVisits())}
+              />
+            </View>
           </View>
         )}
         ListEmptyComponent={
-          <Text style={styles.empty}>
-            No visits yet — tap "Scan recent photos" to detect restaurants
-            from your photo library.
-          </Text>
+          <View style={styles.empty}>
+            <Text style={styles.emptyIcon}>🍜</Text>
+            <Text style={styles.emptyText}>
+              No visits yet — pull down to scan your photo library.
+            </Text>
+          </View>
         }
       />
     </View>
@@ -109,24 +164,48 @@ export default function DiaryScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingTop: 16, paddingHorizontal: 16 },
-  header: { fontSize: 22, fontWeight: "600", marginBottom: 12 },
-  list: { marginTop: 16 },
+  container: { flex: 1, paddingTop: 60, backgroundColor: colors.bg },
+  headerBlock: { paddingHorizontal: 20, marginBottom: 4 },
+  header: { fontSize: 30, fontWeight: "700", color: colors.text },
+  subheader: { fontSize: 14, color: colors.textMuted, marginTop: 2 },
+  list: { marginTop: 12 },
+  listContent: { paddingHorizontal: 20, paddingBottom: 100 },
   card: {
-    padding: 14,
-    borderRadius: 10,
-    backgroundColor: "#f2f2f2",
+    padding: 16,
+    borderRadius: radii.lg,
+    backgroundColor: colors.card,
+    marginBottom: 14,
+    gap: 4,
+  },
+  meta: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
+  notes: { fontSize: 14, color: colors.text, marginTop: 4, lineHeight: 20 },
+  sectionHeader: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.textMuted,
+    letterSpacing: 0.5,
+    marginTop: 18,
     marginBottom: 10,
   },
-  meta: { fontSize: 13, color: "#666", marginTop: 2 },
-  tags: { fontSize: 12, color: "#888", marginTop: 4 },
-  thumbRow: { marginTop: 8 },
-  thumb: {
-    width: 64,
-    height: 64,
-    borderRadius: 8,
-    marginRight: 8,
-    backgroundColor: "#e0e0e0",
+  tagRow: { marginTop: 6 },
+  tagPill: {
+    backgroundColor: colors.accentSoft,
+    borderRadius: radii.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginRight: 6,
   },
-  empty: { textAlign: "center", color: "#888", marginTop: 40 },
+  tagText: { fontSize: 12, color: colors.accent, fontWeight: "600" },
+  thumbRow: { marginTop: 10 },
+  thumb: {
+    width: 70,
+    height: 70,
+    borderRadius: radii.sm,
+    marginRight: 8,
+    backgroundColor: colors.cardMuted,
+  },
+  journalSlot: { marginTop: 6 },
+  empty: { alignItems: "center", paddingTop: 60, paddingHorizontal: 32 },
+  emptyIcon: { fontSize: 40, marginBottom: 12 },
+  emptyText: { textAlign: "center", color: colors.textMuted, fontSize: 15, lineHeight: 22 },
 });

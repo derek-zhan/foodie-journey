@@ -1,6 +1,7 @@
-// Shared by ReviewScreen (filtering the live visit list) and the
-// reviewToday functional test (retiming real .test/ photos to simulate
-// "taken today") - one definition of "today" so both stay in sync.
+// isToday() is used by the reviewToday functional test (retiming real
+// .test/ photos to simulate "taken today") to check its results land in
+// today's window. startOfToday() has no other callers since the merged
+// diary screen dropped its today-only scan/filter.
 export function startOfToday(): Date {
   const d = new Date();
   d.setHours(0, 0, 0, 0);

@@ -1,8 +1,10 @@
 import React, { useState } from "react";
-import { View, Button, Alert, TextInput, StyleSheet } from "react-native";
+import { View, Alert, TextInput, StyleSheet } from "react-native";
 import type { Visit } from "../types";
 import { upsertVisit } from "../db/visitStore";
 import { journalVisit } from "../pipeline/journalVisit";
+import { colors, radii } from "../theme";
+import AppButton from "./AppButton";
 
 interface Props {
   visit: Visit;
@@ -50,9 +52,10 @@ export default function JournalForm({ visit, onSaved }: Props) {
 
   if (!journaling) {
     return (
-      <Button
+      <AppButton
         title={visit.notes ? "Edit journal entry" : "Add journal entry"}
         onPress={startJournaling}
+        variant="secondary"
       />
     );
   }
@@ -63,13 +66,14 @@ export default function JournalForm({ visit, onSaved }: Props) {
         style={styles.input}
         multiline
         placeholder="Tap the mic on your keyboard to dictate, or type"
+        placeholderTextColor={colors.textFaint}
         value={transcriptDraft}
         onChangeText={setTranscriptDraft}
       />
-      <Button
+      <AppButton
         title={saving ? "Saving…" : "Save journal entry"}
         onPress={save}
-        disabled={saving}
+        loading={saving}
       />
     </View>
   );
@@ -78,10 +82,12 @@ export default function JournalForm({ visit, onSaved }: Props) {
 const styles = StyleSheet.create({
   journalForm: { marginTop: 8, gap: 8 },
   input: {
-    backgroundColor: "#fff",
-    borderRadius: 8,
-    padding: 10,
-    minHeight: 60,
+    backgroundColor: colors.cardMuted,
+    borderRadius: radii.sm,
+    padding: 12,
+    minHeight: 70,
+    fontSize: 15,
+    color: colors.text,
     textAlignVertical: "top",
   },
 });
