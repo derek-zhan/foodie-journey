@@ -20,7 +20,7 @@ interface Props {
 }
 
 // Full-screen viewer for one visit's photos, each with its own caption
-// field - opened by tapping the thumbnail row on DiaryScreen. Captions are
+// field - opened by tapping the thumbnail row on JourneyScreen. Captions are
 // buffered locally and written back in one updatePhotoCaptions call when
 // the sheet closes, rather than on every keystroke.
 export default function PhotoCaptionOverlay({

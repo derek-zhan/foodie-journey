@@ -9,10 +9,10 @@ import {
   ActivityIndicator,
 } from "react-native";
 import type { Visit } from "../types";
-import { askDiary } from "../rag/searchDiary";
+import { askJourney } from "../rag/searchJourney";
 import { colors, radii, shadow } from "../theme";
 
-export default function AskDiaryScreen() {
+export default function AskJourneyScreen() {
   const [query, setQuery] = useState("");
   const [answer, setAnswer] = useState<string | null>(null);
   const [sources, setSources] = useState<Visit[]>([]);
@@ -24,7 +24,7 @@ export default function AskDiaryScreen() {
     setAnswer(null);
     setSources([]);
     try {
-      const result = await askDiary(query);
+      const result = await askJourney(query);
       setAnswer(result.answer);
       setSources(result.sources);
     } catch (err: any) {
@@ -36,7 +36,7 @@ export default function AskDiaryScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>Ask your diary</Text>
+      <Text style={styles.header}>Ask your journey</Text>
       <Text style={styles.hint}>
         Retrieval-augmented search over your journaled visits.
       </Text>

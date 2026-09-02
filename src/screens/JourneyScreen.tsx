@@ -22,6 +22,12 @@ import RestaurantPicker from "../components/RestaurantPicker";
 import BrandIcon from "../components/BrandIcon";
 import PhotoCaptionOverlay from "../components/PhotoCaptionOverlay";
 import StoryExportOverlay from "../components/StoryExportOverlay";
+import {
+  JourneyFilterToggle,
+  JourneyFilterPanel,
+  type SortMode,
+  type DateRangePreset,
+} from "../components/JourneyFilterBar";
 import { colors, radii, shadow } from "../theme";
 
 // OpenTable has no mark in the Simple Icons set BrandIcon draws from, so it
@@ -37,6 +43,12 @@ const REVIEW_LINKS: { key: keyof ReturnType<typeof buildReviewLinks>; label: str
 // Visits arrive pre-sorted newest-first (listVisits() orders by startedAt
 // DESC), so grouping same-day visits just means folding consecutive runs
 // that share a title - no separate sort/group-by-key pass needed.
+//
+// Precondition: the input must already be sorted by date (ascending or
+// descending, either works) so same-day visits are adjacent. Holds for
+// the newest/oldest sort modes below; does NOT hold for topRated
+// (dates are scattered), so that mode skips this function entirely and
+// renders a single flat section instead - see `sections` in JourneyScreen.
 function sectionTitle(timestamp: number): string {
   const d = new Date(timestamp);
   if (d.toDateString() === new Date().toDateString()) {
@@ -63,13 +75,85 @@ function groupByDate(visits: Visit[]): { title: string; data: Visit[] }[] {
   return sections;
 }
 
-export default function DiaryScreen() {
+interface JourneyFilterState {
+  tags: string[];
+  minRating: number; // 0 = no filter
+  dateRange: DateRangePreset;
+  sort: SortMode;
+}
+
+const DEFAULT_FILTER_STATE: JourneyFilterState = {
+  tags: [],
+  minRating: 0,
+  dateRange: "all",
+  sort: "newest",
+};
+
+const DATE_RANGE_MS: Record<Exclude<DateRangePreset, "all">, number> = {
+  week: 7 * 24 * 60 * 60 * 1000,
+  month: 30 * 24 * 60 * 60 * 1000,
+};
+
+function applyFilters(visits: Visit[], filter: JourneyFilterState): Visit[] {
+  const cutoff =
+    filter.dateRange === "all" ? null : Date.now() - DATE_RANGE_MS[filter.dateRange];
+
+  const filtered = visits.filter((v) => {
+    if (cutoff !== null && v.startedAt < cutoff) return false;
+    if (filter.minRating > 0 && (v.rating ?? 0) < filter.minRating) return false;
+    if (filter.tags.length > 0 && !filter.tags.some((t) => v.tags?.includes(t))) {
+      return false;
+    }
+    return true;
+  });
+
+  if (filter.sort === "topRated") {
+    return [...filtered].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+  }
+  if (filter.sort === "oldest") {
+    return [...filtered].sort((a, b) => a.startedAt - b.startedAt);
+  }
+  return filtered; // already newest-first from listVisits()
+}
+
+export default function JourneyScreen() {
   const [visits, setVisits] = useState<Visit[]>([]);
   const [loading, setLoading] = useState(false);
   const [captionVisitId, setCaptionVisitId] = useState<string | null>(null);
   const [storyVisitId, setStoryVisitId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<JourneyFilterState>(DEFAULT_FILTER_STATE);
+  const [filterExpanded, setFilterExpanded] = useState(false);
   const thumbnails = useAssetThumbnails(visits);
-  const sections = useMemo(() => groupByDate(visits), [visits]);
+
+  const allTags = useMemo(() => {
+    const set = new Set<string>();
+    visits.forEach((v) => v.tags?.forEach((t) => set.add(t)));
+    return Array.from(set).sort();
+  }, [visits]);
+
+  const filteredVisits = useMemo(() => applyFilters(visits, filter), [visits, filter]);
+
+  // An empty sections array (not a section with empty data) is required for
+  // SectionList's ListEmptyComponent to actually render - a section object
+  // still occupies a header slot even when its `data` is [], which silently
+  // suppresses the empty state.
+  const sections = useMemo(() => {
+    if (filteredVisits.length === 0) return [];
+    return filter.sort === "topRated"
+      ? [{ title: "", data: filteredVisits }]
+      : groupByDate(filteredVisits);
+  }, [filteredVisits, filter.sort]);
+
+  const hasActiveFilters =
+    filter.tags.length > 0 || filter.minRating > 0 || filter.dateRange !== "all";
+
+  function toggleTag(tag: string) {
+    setFilter((f) => ({
+      ...f,
+      tags: f.tags.includes(tag) ? f.tags.filter((t) => t !== tag) : [...f.tags, tag],
+    }));
+  }
+
   const captionVisit = visits.find((v) => v.id === captionVisitId) ?? null;
   const storyVisit = visits.find((v) => v.id === storyVisitId) ?? null;
 
@@ -104,9 +188,33 @@ export default function DiaryScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.headerBlock}>
-        <Text style={styles.header}>Foodie Journey</Text>
-        <Text style={styles.subheader}>Your recent food adventures</Text>
+        <View style={styles.headerTitleRow}>
+          <View style={styles.headerTextBlock}>
+            <Text style={styles.header}>Foodie Journey</Text>
+            <Text style={styles.subheader}>Your recent food adventures</Text>
+          </View>
+          <JourneyFilterToggle
+            sort={filter.sort}
+            hasActiveFilters={hasActiveFilters}
+            expanded={filterExpanded}
+            onToggleExpanded={() => setFilterExpanded((e) => !e)}
+            onClearAll={() => setFilter(DEFAULT_FILTER_STATE)}
+          />
+        </View>
       </View>
+      {filterExpanded ? (
+        <JourneyFilterPanel
+          availableTags={allTags}
+          selectedTags={filter.tags}
+          onToggleTag={toggleTag}
+          minRating={filter.minRating}
+          onSetMinRating={(minRating) => setFilter((f) => ({ ...f, minRating }))}
+          dateRange={filter.dateRange}
+          onSetDateRange={(dateRange) => setFilter((f) => ({ ...f, dateRange }))}
+          sort={filter.sort}
+          onSetSort={(sort) => setFilter((f) => ({ ...f, sort }))}
+        />
+      ) : null}
       <SectionList
         style={styles.list}
         contentContainerStyle={styles.listContent}
@@ -121,9 +229,9 @@ export default function DiaryScreen() {
             colors={[colors.accent]}
           />
         }
-        renderSectionHeader={({ section }) => (
-          <Text style={styles.sectionHeader}>{section.title}</Text>
-        )}
+        renderSectionHeader={({ section }) =>
+          section.title ? <Text style={styles.sectionHeader}>{section.title}</Text> : null
+        }
         renderItem={({ item }) => (
           <View style={[styles.card, shadow.card]}>
             <RestaurantPicker
@@ -215,12 +323,25 @@ export default function DiaryScreen() {
           </View>
         )}
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyIcon}>🍜</Text>
-            <Text style={styles.emptyText}>
-              No visits yet — pull down to scan your photo library.
-            </Text>
-          </View>
+          visits.length === 0 ? (
+            <View style={styles.empty}>
+              <Text style={styles.emptyIcon}>🍜</Text>
+              <Text style={styles.emptyText}>
+                No visits yet — pull down to scan your photo library.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.empty}>
+              <Text style={styles.emptyIcon}>🔍</Text>
+              <Text style={styles.emptyText}>No visits match your filters.</Text>
+              <TouchableOpacity
+                onPress={() => setFilter(DEFAULT_FILTER_STATE)}
+                accessibilityLabel="Clear filters"
+              >
+                <Text style={styles.emptyAction}>Clear filters</Text>
+              </TouchableOpacity>
+            </View>
+          )
         }
       />
       <PhotoCaptionOverlay
@@ -241,6 +362,13 @@ export default function DiaryScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, paddingTop: 60, backgroundColor: colors.bg },
   headerBlock: { paddingHorizontal: 20, marginBottom: 4 },
+  headerTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  headerTextBlock: { flexShrink: 1 },
   header: { fontSize: 30, fontWeight: "700", color: colors.text },
   subheader: { fontSize: 14, color: colors.textMuted, marginTop: 2 },
   list: { marginTop: 12 },
@@ -320,4 +448,10 @@ const styles = StyleSheet.create({
   empty: { alignItems: "center", paddingTop: 60, paddingHorizontal: 32 },
   emptyIcon: { fontSize: 40, marginBottom: 12 },
   emptyText: { textAlign: "center", color: colors.textMuted, fontSize: 15, lineHeight: 22 },
+  emptyAction: {
+    marginTop: 12,
+    fontSize: 14,
+    fontWeight: "700",
+    color: colors.accent,
+  },
 });

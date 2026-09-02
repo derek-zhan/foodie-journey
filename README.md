@@ -1,8 +1,8 @@
 # Foodie Journey
 
 Iteration 1: detect restaurant visits from geotagged photos, journal them by
-voice, and browse them as a diary. No posting to Google Maps/Yelp yet — that's
-phase 2.
+voice, and browse them as your food journey. No posting to Google Maps/Yelp
+yet — that's phase 2.
 
 ## Pipeline
 
@@ -12,8 +12,8 @@ Phone photo library
   → Places API lookup (reverse geocode to restaurant)
   → Visit clustering (group nearby photos in time)
   → Voice journal (LLM structuring of a transcript into notes/tags/rating)
-  → Local diary storage (SQLite, timeline UI, FTS5 search index)
-  → Ask the diary (RAG: local full-text retrieval, Claude answers)
+  → Local storage (SQLite, timeline UI, FTS5 search index)
+  → Ask your journey (RAG: local full-text retrieval, Claude answers)
 ```
 
 Each stage lives in `src/pipeline/`:
@@ -31,25 +31,25 @@ Each stage lives in `src/pipeline/`:
 - `clusterVisits.ts` — groups photos into discrete visits by time + distance proximity
 - `journalVisit.ts` — turns a transcript into structured notes/tags/rating via the Claude API
 
-RAG (search over the diary) lives in `src/rag/`:
-- `searchDiary.ts` — retrieves the most relevant journaled visits for a query via local full-text search and has Claude answer from them
+RAG (search over your journey) lives in `src/rag/`:
+- `searchJourney.ts` — retrieves the most relevant journaled visits for a query via local full-text search and has Claude answer from them
 
 Retrieval is entirely local: `visitStore.ts` maintains a SQLite FTS5 index
 (bm25-ranked) over each visit's notes/tags/place name — no embeddings, no
 external API for search. It's lexical, not semantic (a query for "ramen"
 won't match a note that only says "noodle soup"), which is a real tradeoff
 against something like Voyage/OpenAI embeddings, but it's free, offline, and
-plenty for searching your own vocabulary over your own diary.
+plenty for searching your own vocabulary over your own journey.
 
 Storage: `src/db/visitStore.ts` (visits + the FTS5 index), SQLite via `expo-sqlite`
-UI: `src/screens/DiaryScreen.tsx` (timeline, photo thumbnails, journal entry),
-`src/screens/ReviewScreen.tsx` (today's detected visits only, for same-day
-voice journaling) and `src/screens/AskDiaryScreen.tsx` (ask the diary),
-switched via a tab bar in `App.tsx`. Both journaling screens share
-`src/components/JournalForm.tsx` and `src/hooks/useAssetThumbnails.ts`.
-Photos themselves are never copied into the app — only the device's asset id is
-stored (see `Visit.photoIds`), and thumbnails are resolved from that id at
-render time.
+UI: `src/screens/JourneyScreen.tsx` (timeline, photo thumbnails, journal
+entry, filter/sort) rendered full-screen from `App.tsx`, with
+`src/screens/AskJourneyScreen.tsx` (ask your journey) opened on demand from
+a floating action button into a bottom-sheet modal — no tab bar, no
+navigation library. Both screens share `src/components/JournalForm.tsx` and
+`src/hooks/useAssetThumbnails.ts`. Photos themselves are never copied into
+the app — only the device's asset id is stored (see `Visit.photoIds`), and
+thumbnails are resolved from that id at render time.
 
 ## Setup
 
@@ -57,7 +57,7 @@ render time.
 2. Copy `.env.example` to `.env` and add:
    - a Google Places API key (enable "Places API (New)" in Google Cloud Console) —
      optional; without it, place resolution falls back to OpenStreetMap
-   - an Anthropic API key (for journal structuring and diary Q&A)
+   - an Anthropic API key (for journal structuring and journey Q&A)
 3. `npm start` — then open in Expo Go on your phone, or run `npm run ios` / `npm run android`
 
 Note: both keys are `EXPO_PUBLIC_*` and ship inside the client bundle —
@@ -76,9 +76,12 @@ touching the place-resolution or journaling pipeline:
   personal photos, real locations) and the test just skips if it's empty,
   so this is opt-in per developer
 - `reviewToday.functional.test.ts` — same `.test/` photos, retimed to
-  "now" so they exercise the Review screen's "today only" filter, then
-  runs the resolved visit through the real `journalVisit()` Claude call
-  too (skipped if `EXPO_PUBLIC_ANTHROPIC_API_KEY` isn't set to a real key)
+  "now" so they pass `isToday()`'s same-day window check (see
+  `todayWindow.ts` — this util now only serves this test; the Journey
+  screen's own today-only filter was dropped once its scan flow merged
+  with the old same-day review flow), then runs the resolved visit
+  through the real `journalVisit()` Claude call too (skipped if
+  `EXPO_PUBLIC_ANTHROPIC_API_KEY` isn't set to a real key)
 
 `jest.setup.js` loads `.env` before any test runs (via `@expo/env`, the
 same loader `expo start` uses) — without it, Jest's plain Node process
@@ -87,7 +90,7 @@ never sees `EXPO_PUBLIC_*` at all.
 ### Local web dev with `.test/` photos
 
 Since a browser has no device photo library, `npm run web` would
-otherwise always show an empty Diary/Review with nothing to scan. In
+otherwise always show an empty journey with nothing to scan. In
 local dev only, `extractPhotoMetadata.ts` instead fetches from a route
 `scripts/webDev.js`'s proxy serves (`/__test-photos`), which live-reads
 the same `.test/` folder above via `exifr` on every request — drop a

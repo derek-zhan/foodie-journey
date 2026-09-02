@@ -69,7 +69,7 @@ async function fetchTestPhotosFromDevProxy(since: Date): Promise<PhotoAsset[]> {
  * no device photo library to read there. Deferring the import means that
  * failure only happens if this function is actually called, inside the
  * caller's existing try/catch, instead of crashing the whole module graph
- * (and blanking the page) the moment DiaryScreen.tsx is loaded.
+ * (and blanking the page) the moment JourneyScreen.tsx is loaded.
  */
 export async function extractPhotoMetadata(
   since: Date,
@@ -125,7 +125,7 @@ export async function extractPhotoMetadata(
 /**
  * Resolves a stored photoId (see Visit.photoIds - visitStore only ever
  * keeps the device asset id, never a copy of the image itself) back into a
- * displayable URI, for showing a thumbnail in the diary. Returns null
+ * displayable URI, for showing a thumbnail in the journey. Returns null
  * instead of throwing when the asset can't be resolved (permission
  * revoked since the scan, or the photo was deleted from the device) - a
  * missing thumbnail shouldn't take down the whole visit list.
