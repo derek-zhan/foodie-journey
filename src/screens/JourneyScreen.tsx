@@ -10,9 +10,12 @@ import {
   TouchableOpacity,
   Linking,
   Platform,
+  type LayoutChangeEvent,
 } from "react-native";
 import { Image } from "expo-image";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Swipeable from "react-native-gesture-handler/ReanimatedSwipeable";
+import GlassSurface from "../components/GlassSurface";
 import type { Visit } from "../types";
 import {
   listVisits,
@@ -38,7 +41,7 @@ import {
   type SortMode,
   type DateRangePreset,
 } from "../components/JourneyFilterBar";
-import { colors, radii, shadow } from "../theme";
+import { colors, radii } from "../theme";
 
 // OpenTable has no mark in the Simple Icons set BrandIcon draws from, so it
 // gets a plain badge (in its own brand red) instead of an invented logo.
@@ -127,6 +130,8 @@ function applyFilters(visits: Visit[], filter: JourneyFilterState): Visit[] {
 }
 
 export default function JourneyScreen() {
+  const insets = useSafeAreaInsets();
+  const [chromeHeight, setChromeHeight] = useState(0);
   const [visits, setVisits] = useState<Visit[]>([]);
   const [loading, setLoading] = useState(false);
   const [captionVisitId, setCaptionVisitId] = useState<string | null>(null);
@@ -237,37 +242,9 @@ export default function JourneyScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.headerBlock}>
-        <View style={styles.headerTitleRow}>
-          <View style={styles.headerTextBlock}>
-            <Text style={styles.header}>Foodie Journey</Text>
-            <Text style={styles.subheader}>Your recent food adventures</Text>
-          </View>
-          <JourneyFilterToggle
-            sort={filter.sort}
-            hasActiveFilters={hasActiveFilters}
-            expanded={filterExpanded}
-            onToggleExpanded={() => setFilterExpanded((e) => !e)}
-            onClearAll={() => setFilter(DEFAULT_FILTER_STATE)}
-          />
-        </View>
-      </View>
-      {filterExpanded ? (
-        <JourneyFilterPanel
-          availableTags={allTags}
-          selectedTags={filter.tags}
-          onToggleTag={toggleTag}
-          minRating={filter.minRating}
-          onSetMinRating={(minRating) => setFilter((f) => ({ ...f, minRating }))}
-          dateRange={filter.dateRange}
-          onSetDateRange={(dateRange) => setFilter((f) => ({ ...f, dateRange }))}
-          sort={filter.sort}
-          onSetSort={(sort) => setFilter((f) => ({ ...f, sort }))}
-        />
-      ) : null}
       <SectionList
         style={styles.list}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, { paddingTop: chromeHeight + 12 }]}
         sections={sections}
         keyExtractor={(v) => v.id}
         stickySectionHeadersEnabled={false}
@@ -298,7 +275,14 @@ export default function JourneyScreen() {
               </View>
             )}
           >
-          <View style={[styles.card, shadow.card]}>
+          <GlassSurface
+            variant="tint"
+            tone="light"
+            radius={radii.lg}
+            shadowTier="card"
+            style={styles.card}
+            contentStyle={styles.cardContent}
+          >
             <View style={styles.placeHeaderRow}>
               <RestaurantPicker
                 visit={item}
@@ -395,7 +379,7 @@ export default function JourneyScreen() {
                 </TouchableOpacity>
               ) : null}
             </View>
-          </View>
+          </GlassSurface>
           </Swipeable>
         )}
         ListEmptyComponent={
@@ -420,6 +404,43 @@ export default function JourneyScreen() {
           )
         }
       />
+      <GlassSurface
+        variant="real"
+        tone="light"
+        strong
+        shadowTier="none"
+        radius={0}
+        style={styles.chromeSurface}
+        contentStyle={[styles.chromeContent, { paddingTop: insets.top + 16 }]}
+        onLayout={(e: LayoutChangeEvent) => setChromeHeight(e.nativeEvent.layout.height)}
+      >
+        <View style={styles.headerTitleRow}>
+          <View style={styles.headerTextBlock}>
+            <Text style={styles.header}>Foodie Journey</Text>
+            <Text style={styles.subheader}>Your recent food adventures</Text>
+          </View>
+          <JourneyFilterToggle
+            sort={filter.sort}
+            hasActiveFilters={hasActiveFilters}
+            expanded={filterExpanded}
+            onToggleExpanded={() => setFilterExpanded((e) => !e)}
+            onClearAll={() => setFilter(DEFAULT_FILTER_STATE)}
+          />
+        </View>
+        {filterExpanded ? (
+          <JourneyFilterPanel
+            availableTags={allTags}
+            selectedTags={filter.tags}
+            onToggleTag={toggleTag}
+            minRating={filter.minRating}
+            onSetMinRating={(minRating) => setFilter((f) => ({ ...f, minRating }))}
+            dateRange={filter.dateRange}
+            onSetDateRange={(dateRange) => setFilter((f) => ({ ...f, dateRange }))}
+            sort={filter.sort}
+            onSetSort={(sort) => setFilter((f) => ({ ...f, sort }))}
+          />
+        ) : null}
+      </GlassSurface>
       <PhotoCaptionOverlay
         visit={captionVisit}
         thumbnails={thumbnails}
@@ -436,8 +457,9 @@ export default function JourneyScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingTop: 60, backgroundColor: colors.bg },
-  headerBlock: { paddingHorizontal: 20, marginBottom: 4 },
+  container: { flex: 1, backgroundColor: colors.bg },
+  chromeSurface: { position: "absolute", top: 0, left: 0, right: 0 },
+  chromeContent: { paddingHorizontal: 20, paddingBottom: 16 },
   headerTitleRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -447,15 +469,10 @@ const styles = StyleSheet.create({
   headerTextBlock: { flexShrink: 1 },
   header: { fontSize: 30, fontWeight: "700", color: colors.text },
   subheader: { fontSize: 14, color: colors.textMuted, marginTop: 2 },
-  list: { marginTop: 12 },
+  list: { flex: 1 },
   listContent: { paddingHorizontal: 20, paddingBottom: 100 },
-  card: {
-    padding: 16,
-    borderRadius: radii.lg,
-    backgroundColor: colors.card,
-    marginBottom: 14,
-    gap: 4,
-  },
+  card: { marginBottom: 14 },
+  cardContent: { padding: 16, gap: 4 },
   placeHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
