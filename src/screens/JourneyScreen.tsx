@@ -41,7 +41,7 @@ import {
   type SortMode,
   type DateRangePreset,
 } from "../components/JourneyFilterBar";
-import { colors, radii } from "../theme";
+import { colors, radii, TAB_BAR_HEIGHT } from "../theme";
 
 // OpenTable has no mark in the Simple Icons set BrandIcon draws from, so it
 // gets a plain badge (in its own brand red) instead of an invented logo.
@@ -470,7 +470,7 @@ const styles = StyleSheet.create({
   header: { fontSize: 30, fontWeight: "700", color: colors.text },
   subheader: { fontSize: 14, color: colors.textMuted, marginTop: 2 },
   list: { flex: 1 },
-  listContent: { paddingHorizontal: 20, paddingBottom: 100 },
+  listContent: { paddingHorizontal: 20, paddingBottom: TAB_BAR_HEIGHT + 40 },
   card: { marginBottom: 14 },
   cardContent: { padding: 16, gap: 4 },
   placeHeaderRow: {

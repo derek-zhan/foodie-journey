@@ -21,6 +21,12 @@ export const radii = {
   pill: 999,
 };
 
+// Content height of the bottom tab bar, excluding the device's bottom
+// safe-area inset (BottomTabBar.tsx adds that separately). Shared with
+// App.tsx (to float the Ask FAB above the bar) and every tab screen (to
+// pad scrollable content so it isn't hidden behind the bar).
+export const TAB_BAR_HEIGHT = 64;
+
 export const shadow = {
   card: {
     shadowColor: "#000",
