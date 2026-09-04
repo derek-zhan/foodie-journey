@@ -21,6 +21,7 @@ import {
   excludePhotos,
   getExcludedPhotoIds,
   deleteVisit,
+  removePhotoFromVisit,
 } from "../db/visitStore";
 import { extractPhotoMetadata } from "../pipeline/extractPhotoMetadata";
 import { clusterVisits } from "../pipeline/clusterVisits";
@@ -196,30 +197,41 @@ export default function JourneyScreen() {
     }
   }
 
-  function removeVisit(visit: Visit) {
-    const doRemove = () => {
-      excludePhotos(visit.photoIds);
-      deleteVisit(visit.id);
-      setVisits(listVisits());
-    };
-
-    // react-native-web's Alert.alert is a no-op (no dialog, buttons never
-    // fire) - see node_modules/react-native-web/dist/exports/Alert. window.
-    // confirm is the web equivalent of a native blocking confirm dialog.
+  // react-native-web's Alert.alert is a no-op (no dialog, buttons never
+  // fire) - see node_modules/react-native-web/dist/exports/Alert. window.
+  // confirm is the web equivalent of a native blocking confirm dialog.
+  function confirmDestructive(title: string, message: string, onConfirm: () => void) {
     if (Platform.OS === "web") {
-      if (window.confirm("Remove this visit? Its photos won't be scanned into a visit again.")) {
-        doRemove();
-      }
+      if (window.confirm(`${title} ${message}`)) onConfirm();
       return;
     }
 
-    Alert.alert(
+    Alert.alert(title, message, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Remove", style: "destructive", onPress: onConfirm },
+    ]);
+  }
+
+  function removeVisit(visit: Visit) {
+    confirmDestructive(
       "Remove this visit?",
       "Its photos won't be scanned into a visit again.",
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Remove", style: "destructive", onPress: doRemove },
-      ]
+      () => {
+        excludePhotos(visit.photoIds);
+        deleteVisit(visit.id);
+        setVisits(listVisits());
+      }
+    );
+  }
+
+  function removePhoto(visit: Visit, photoId: string) {
+    confirmDestructive(
+      "Remove this photo?",
+      "It won't be scanned into a visit again.",
+      () => {
+        removePhotoFromVisit(visit.id, photoId);
+        setVisits(listVisits());
+      }
     );
   }
 
@@ -334,6 +346,7 @@ export default function JourneyScreen() {
                       key={id}
                       style={styles.thumbWrap}
                       onPress={() => setCaptionVisitId(item.id)}
+                      onLongPress={() => removePhoto(item, id)}
                     >
                       <Image
                         source={{ uri: thumbnails[id]! }}
