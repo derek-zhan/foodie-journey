@@ -8,6 +8,7 @@ import {
   StyleSheet,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import JourneyScreen from "./src/screens/JourneyScreen";
 import AskJourneyScreen from "./src/screens/AskJourneyScreen";
 import { initDb } from "./src/db/visitStore";
@@ -21,38 +22,40 @@ export default function App() {
   }, []);
 
   return (
-    <View style={styles.root}>
-      <JourneyScreen />
+    <GestureHandlerRootView style={styles.root}>
+      <View style={styles.root}>
+        <JourneyScreen />
 
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => setAskVisible(true)}
-      >
-        <Text style={styles.fabIcon}>💬</Text>
-      </TouchableOpacity>
-
-      <Modal
-        visible={askVisible}
-        animationType="fade"
-        transparent
-        onRequestClose={() => setAskVisible(false)}
-      >
         <TouchableOpacity
-          style={styles.backdrop}
-          activeOpacity={1}
-          onPress={() => setAskVisible(false)}
+          style={styles.fab}
+          onPress={() => setAskVisible(true)}
         >
-          <TouchableWithoutFeedback>
-            <View style={styles.sheet}>
-              <View style={styles.grabber} />
-              <AskJourneyScreen />
-            </View>
-          </TouchableWithoutFeedback>
+          <Text style={styles.fabIcon}>💬</Text>
         </TouchableOpacity>
-      </Modal>
 
-      <StatusBar style="auto" />
-    </View>
+        <Modal
+          visible={askVisible}
+          animationType="fade"
+          transparent
+          onRequestClose={() => setAskVisible(false)}
+        >
+          <TouchableOpacity
+            style={styles.backdrop}
+            activeOpacity={1}
+            onPress={() => setAskVisible(false)}
+          >
+            <TouchableWithoutFeedback>
+              <View style={styles.sheet}>
+                <View style={styles.grabber} />
+                <AskJourneyScreen />
+              </View>
+            </TouchableWithoutFeedback>
+          </TouchableOpacity>
+        </Modal>
+
+        <StatusBar style="auto" />
+      </View>
+    </GestureHandlerRootView>
   );
 }
 

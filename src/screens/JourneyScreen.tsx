@@ -9,8 +9,10 @@ import {
   Alert,
   TouchableOpacity,
   Linking,
+  Platform,
 } from "react-native";
 import { Image } from "expo-image";
+import Swipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 import type { Visit } from "../types";
 import {
   listVisits,
@@ -195,20 +197,28 @@ export default function JourneyScreen() {
   }
 
   function removeVisit(visit: Visit) {
+    const doRemove = () => {
+      excludePhotos(visit.photoIds);
+      deleteVisit(visit.id);
+      setVisits(listVisits());
+    };
+
+    // react-native-web's Alert.alert is a no-op (no dialog, buttons never
+    // fire) - see node_modules/react-native-web/dist/exports/Alert. window.
+    // confirm is the web equivalent of a native blocking confirm dialog.
+    if (Platform.OS === "web") {
+      if (window.confirm("Remove this visit? Its photos won't be scanned into a visit again.")) {
+        doRemove();
+      }
+      return;
+    }
+
     Alert.alert(
       "Remove this visit?",
       "Its photos won't be scanned into a visit again.",
       [
         { text: "Cancel", style: "cancel" },
-        {
-          text: "Remove",
-          style: "destructive",
-          onPress: () => {
-            excludePhotos(visit.photoIds);
-            deleteVisit(visit.id);
-            setVisits(listVisits());
-          },
-        },
+        { text: "Remove", style: "destructive", onPress: doRemove },
       ]
     );
   }
@@ -261,11 +271,35 @@ export default function JourneyScreen() {
           section.title ? <Text style={styles.sectionHeader}>{section.title}</Text> : null
         }
         renderItem={({ item }) => (
+          <Swipeable
+            overshootRight={false}
+            rightThreshold={56}
+            renderRightActions={() => (
+              <View style={styles.swipeActionsContainer}>
+                <TouchableOpacity
+                  style={styles.swipeActionButton}
+                  accessibilityLabel={`Remove visit to ${item.place.name}`}
+                  onPress={() => removeVisit(item)}
+                >
+                  <Text style={styles.swipeActionText}>Remove</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          >
           <View style={[styles.card, shadow.card]}>
-            <RestaurantPicker
-              visit={item}
-              onSaved={() => setVisits(listVisits())}
-            />
+            <View style={styles.placeHeaderRow}>
+              <RestaurantPicker
+                visit={item}
+                onSaved={() => setVisits(listVisits())}
+              />
+              <TouchableOpacity
+                style={styles.reviewLinkIcon}
+                accessibilityLabel={`Remove visit to ${item.place.name}`}
+                onPress={() => removeVisit(item)}
+              >
+                <Text style={styles.removeIconText}>✕</Text>
+              </TouchableOpacity>
+            </View>
             <View style={styles.metaRow}>
               <Text style={styles.meta}>
                 {item.photoIds.length} photo
@@ -286,13 +320,6 @@ export default function JourneyScreen() {
                     )}
                   </TouchableOpacity>
                 ))}
-                <TouchableOpacity
-                  style={styles.reviewLinkIcon}
-                  accessibilityLabel={`Remove visit to ${item.place.name}`}
-                  onPress={() => removeVisit(item)}
-                >
-                  <Text style={styles.removeIconText}>✕</Text>
-                </TouchableOpacity>
               </View>
             </View>
             {item.photoIds.length > 0 ? (
@@ -356,6 +383,7 @@ export default function JourneyScreen() {
               ) : null}
             </View>
           </View>
+          </Swipeable>
         )}
         ListEmptyComponent={
           visits.length === 0 ? (
@@ -415,6 +443,11 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     gap: 4,
   },
+  placeHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
   metaRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -433,6 +466,18 @@ const styles = StyleSheet.create({
   },
   opentableBadgeText: { fontSize: 9, fontWeight: "700", color: OPENTABLE_RED },
   removeIconText: { fontSize: 12, fontWeight: "700", color: colors.danger },
+  // Revealed by swiping a card left (react-native-gesture-handler's
+  // ReanimatedSwipeable renderRightActions) - the ✕ button above stays as
+  // a fallback for anyone who doesn't discover the gesture.
+  swipeActionsContainer: { width: 84, marginBottom: 14 },
+  swipeActionButton: {
+    flex: 1,
+    backgroundColor: colors.danger,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radii.lg,
+  },
+  swipeActionText: { color: "#fff", fontWeight: "700", fontSize: 14 },
   storyButton: {
     width: 46,
     height: 46,
