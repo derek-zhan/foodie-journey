@@ -12,6 +12,7 @@ import type { ResolvedPlace, Visit } from "../types";
 const db =
   Platform.OS === "web" ? null : SQLite.openDatabaseSync("foodie-journey.db");
 const memoryVisits = new Map<string, Visit>();
+const memoryExcludedPhotoIds = new Set<string>();
 
 const SEARCH_LIMIT = 5;
 
@@ -51,6 +52,16 @@ export function initDb() {
   `);
 
   backfillFtsIndex(db);
+
+  // Photo ids the user explicitly removed a visit for - checked by
+  // JourneyScreen.runScan before clustering so those photos can never form
+  // a visit again (at this or any other place), not just re-form the exact
+  // same visit id. See excludePhotos/getExcludedPhotoIds below.
+  db.execSync(`
+    CREATE TABLE IF NOT EXISTS excluded_photos (
+      photoId TEXT PRIMARY KEY NOT NULL
+    );
+  `);
 }
 
 // CREATE TABLE IF NOT EXISTS is a no-op against a visits table that already
@@ -302,6 +313,58 @@ export function upsertScannedVisit(visit: Visit) {
     const merged = mergeRescannedVisit(visit, row ? rowToVisit(row) : null);
     writeVisitRow(db, merged);
   });
+}
+
+/**
+ * Deletes a visit the user marked as wrong (JourneyScreen's remove button).
+ * Same delete+FTS-cleanup shape as the id-changing branch of
+ * updateVisitPlace above. Callers pair this with excludePhotos(visit.
+ * photoIds) so the underlying photos don't just re-form the same visit on
+ * the next scan - see that function's comment.
+ */
+export function deleteVisit(visitId: string): void {
+  if (!db) {
+    memoryVisits.delete(visitId);
+    return;
+  }
+  db.withTransactionSync(() => {
+    db.runSync(`DELETE FROM visits WHERE id = ?;`, [visitId]);
+    db.runSync(`DELETE FROM visits_fts WHERE visitId = ?;`, [visitId]);
+  });
+}
+
+/**
+ * Marks photo ids as permanently excluded from future scans - used when
+ * the user removes a visit they didn't actually make (JourneyScreen).
+ * Excluding by photo id rather than by visit id means these photos can't
+ * silently re-form a *different* visit at a different place either; a
+ * visit-id block would only stop the exact same cluster-to-place
+ * resolution from recurring.
+ */
+export function excludePhotos(photoIds: string[]): void {
+  if (!db) {
+    photoIds.forEach((id) => memoryExcludedPhotoIds.add(id));
+    return;
+  }
+  db.withTransactionSync(() => {
+    for (const id of photoIds) {
+      db.runSync(`INSERT OR IGNORE INTO excluded_photos (photoId) VALUES (?);`, [id]);
+    }
+  });
+}
+
+/**
+ * All excluded photo ids, for JourneyScreen.runScan to filter out of a
+ * fresh extractPhotoMetadata() result before clusterVisits ever sees them.
+ */
+export function getExcludedPhotoIds(): Set<string> {
+  if (!db) {
+    return new Set(memoryExcludedPhotoIds);
+  }
+  const rows = db.getAllSync<{ photoId: string }>(
+    `SELECT photoId FROM excluded_photos;`
+  );
+  return new Set(rows.map((r) => r.photoId));
 }
 
 export function listVisits(): Visit[] {

@@ -12,7 +12,14 @@ import {
 } from "react-native";
 import { Image } from "expo-image";
 import type { Visit } from "../types";
-import { listVisits, upsertScannedVisit, updatePhotoCaptions } from "../db/visitStore";
+import {
+  listVisits,
+  upsertScannedVisit,
+  updatePhotoCaptions,
+  excludePhotos,
+  getExcludedPhotoIds,
+  deleteVisit,
+} from "../db/visitStore";
 import { extractPhotoMetadata } from "../pipeline/extractPhotoMetadata";
 import { clusterVisits } from "../pipeline/clusterVisits";
 import { buildReviewLinks } from "../pipeline/reviewLinks";
@@ -170,11 +177,13 @@ export default function JourneyScreen() {
     setLoading(true);
     try {
       const since = new Date();
-      since.setDate(since.getDate() - 7); // last 7 days for now
+      since.setDate(since.getDate() - 3); // last 3 days for now
       since.setHours(0, 0, 0, 0); // stable across repeated scans in the same day - see extractPhotoMetadata.ts's anchor comment
 
       const photos = await extractPhotoMetadata(since);
-      const detected = await clusterVisits(photos);
+      const excluded = getExcludedPhotoIds();
+      const eligible = photos.filter((p) => !excluded.has(p.id));
+      const detected = await clusterVisits(eligible);
 
       detected.forEach(upsertScannedVisit);
       setVisits(listVisits());
@@ -183,6 +192,25 @@ export default function JourneyScreen() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function removeVisit(visit: Visit) {
+    Alert.alert(
+      "Remove this visit?",
+      "Its photos won't be scanned into a visit again.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: () => {
+            excludePhotos(visit.photoIds);
+            deleteVisit(visit.id);
+            setVisits(listVisits());
+          },
+        },
+      ]
+    );
   }
 
   return (
@@ -258,6 +286,13 @@ export default function JourneyScreen() {
                     )}
                   </TouchableOpacity>
                 ))}
+                <TouchableOpacity
+                  style={styles.reviewLinkIcon}
+                  accessibilityLabel={`Remove visit to ${item.place.name}`}
+                  onPress={() => removeVisit(item)}
+                >
+                  <Text style={styles.removeIconText}>✕</Text>
+                </TouchableOpacity>
               </View>
             </View>
             {item.photoIds.length > 0 ? (
@@ -397,6 +432,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   opentableBadgeText: { fontSize: 9, fontWeight: "700", color: OPENTABLE_RED },
+  removeIconText: { fontSize: 12, fontWeight: "700", color: colors.danger },
   storyButton: {
     width: 46,
     height: 46,
