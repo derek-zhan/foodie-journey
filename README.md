@@ -4,6 +4,25 @@ Iteration 1: detect restaurant visits from geotagged photos, journal them by
 voice, and browse them as your food journey. No posting to Google Maps/Yelp
 yet — that's phase 2.
 
+## Screenshots
+
+| Timeline | Ask your journey | Me |
+|---|---|---|
+| ![Timeline screen showing journaled restaurant visits](docs/screenshots/timeline.png) | ![Ask your journey RAG search answering a question about past visits](docs/screenshots/ask-journey.png) | ![Me screen showing visit stats and top tags](docs/screenshots/me.png) |
+
+*(Sample data shown above — not real visits.)*
+
+## Tech stack
+
+- **React Native + Expo (SDK 57)**, TypeScript
+- **expo-sqlite** with an FTS5 (bm25-ranked) full-text index for local, offline visit search
+- **Anthropic Claude API** (`@anthropic-ai/sdk`) for voice-journal structuring and the "ask your journey" RAG Q&A
+- **Google Places API** (with an OpenStreetMap/Overpass fallback) for reverse-geocoding photo GPS to a restaurant
+- **expo-media-library**, **expo-file-system**, **exifr** for reading geotagged photos from the device library
+- **react-native-maps**, **react-native-reanimated**, **react-native-gesture-handler** for the native UI/map layer
+- **Jest** for functional pipeline tests
+- **Zod** for schema validation
+
 ## Pipeline
 
 ```
