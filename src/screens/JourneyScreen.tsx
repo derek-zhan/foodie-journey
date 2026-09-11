@@ -20,12 +20,15 @@ import GlassSurface from "../components/GlassSurface";
 import type { Visit } from "../types";
 import {
   listVisits,
+  upsertVisit,
   upsertScannedVisit,
   updatePhotoCaptions,
   excludePhotos,
+  unexcludePhotos,
   getExcludedPhotoIds,
   deleteVisit,
   removePhotoFromVisit,
+  mergeVisits,
   isJournaled,
 } from "../db/visitStore";
 import {
@@ -34,13 +37,14 @@ import {
   presentPhotoAccessPicker,
   PhotoPermissionError,
 } from "../pipeline/extractPhotoMetadata";
-import { clusterVisits } from "../pipeline/clusterVisits";
+import { clusterVisits, MAX_GAP_MINUTES } from "../pipeline/clusterVisits";
 import { buildReviewLinks } from "../pipeline/reviewLinks";
 import { useAssetThumbnails } from "../hooks/useAssetThumbnails";
 import JournalForm from "../components/JournalForm";
 import RestaurantPicker from "../components/RestaurantPicker";
 import BrandIcon from "../components/BrandIcon";
 import ScanRangeSelector from "../components/ScanRangeSelector";
+import UndoToast from "../components/UndoToast";
 import PhotoCaptionOverlay from "../components/PhotoCaptionOverlay";
 import StoryExportOverlay from "../components/StoryExportOverlay";
 import {
@@ -160,6 +164,18 @@ export default function JourneyScreen() {
   // window (runScanForDate) and the displayed list (filteredVisits below)
   // to this single day. Cleared by picking the 3/7-day presets (runScan).
   const [exactDate, setExactDate] = useState<Date | null>(null);
+  // Backs the ~5s undo window after removing a visit or photo - `visit` is
+  // the full pre-removal snapshot (already in hand at the call site, no
+  // extra read needed) and `excludedIds` is whatever excludePhotos() was
+  // just called with, so undo is always just unexcludePhotos + upsertVisit
+  // of that snapshot, regardless of whether the removal cascaded into
+  // deleting the whole visit (last photo) or just filtered one id out.
+  const [undoInfo, setUndoInfo] = useState<{
+    visit: Visit;
+    excludedIds: string[];
+    message: string;
+  } | null>(null);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [captionVisitId, setCaptionVisitId] = useState<string | null>(null);
   const [storyVisitId, setStoryVisitId] = useState<string | null>(null);
   const [filter, setFilter] = useState<JourneyFilterState>(DEFAULT_FILTER_STATE);
@@ -171,6 +187,53 @@ export default function JourneyScreen() {
     visits.forEach((v) => v.tags?.forEach((t) => set.add(t)));
     return Array.from(set).sort();
   }, [visits]);
+
+  // visitId -> the chronologically-adjacent visit at the same place it
+  // could be merged with, for the "Merge with nearby visit" action -
+  // catches a re-scan's 90-minute clustering threshold splitting one real
+  // visit into two adjacent rows (see clusterVisits.ts). Computed from the
+  // full unfiltered/unsorted `visits`, not filteredVisits, since "nearby in
+  // time" only means something against real chronological adjacency, not
+  // whatever order the user's current sort/filter happens to show. Only
+  // offered when at most one side is already journaled - if both carry
+  // notes, punt rather than guessing which one's journal entry should win.
+  const mergeCandidates = useMemo(() => {
+    const map = new Map<string, Visit>();
+    const byPlace = new Map<string, Visit[]>();
+    for (const v of visits) {
+      const arr = byPlace.get(v.place.placeId) ?? [];
+      arr.push(v);
+      byPlace.set(v.place.placeId, arr);
+    }
+    for (const group of byPlace.values()) {
+      if (group.length < 2) continue;
+      const sorted = [...group].sort((a, b) => a.startedAt - b.startedAt);
+      for (let i = 0; i < sorted.length - 1; i++) {
+        const a = sorted[i];
+        const b = sorted[i + 1];
+        const gapMinutes = (b.startedAt - a.endedAt) / 60000;
+        if (gapMinutes <= MAX_GAP_MINUTES && !(isJournaled(a) && isJournaled(b))) {
+          map.set(a.id, b);
+          map.set(b.id, a);
+        }
+      }
+    }
+    return map;
+  }, [visits]);
+
+  function mergeWithNearby(visit: Visit) {
+    const other = mergeCandidates.get(visit.id);
+    if (!other) return;
+    confirmDestructive(
+      "Merge these visits?",
+      `Combine with the nearby visit at ${new Date(other.startedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}. This can't be undone.`,
+      () => {
+        const merged = mergeVisits(visit.id, other.id);
+        if (merged) setVisits(listVisits());
+      },
+      { confirmLabel: "Merge", destructive: false }
+    );
+  }
 
   const filteredVisits = useMemo(() => {
     const base = exactDate
@@ -308,7 +371,15 @@ export default function JourneyScreen() {
   // react-native-web's Alert.alert is a no-op (no dialog, buttons never
   // fire) - see node_modules/react-native-web/dist/exports/Alert. window.
   // confirm is the web equivalent of a native blocking confirm dialog.
-  function confirmDestructive(title: string, message: string, onConfirm: () => void) {
+  function confirmDestructive(
+    title: string,
+    message: string,
+    onConfirm: () => void,
+    options?: { confirmLabel?: string; destructive?: boolean }
+  ) {
+    const confirmLabel = options?.confirmLabel ?? "Remove";
+    const destructive = options?.destructive ?? true;
+
     if (Platform.OS === "web") {
       if (window.confirm(`${title} ${message}`)) onConfirm();
       return;
@@ -316,8 +387,27 @@ export default function JourneyScreen() {
 
     Alert.alert(title, message, [
       { text: "Cancel", style: "cancel" },
-      { text: "Remove", style: "destructive", onPress: onConfirm },
+      {
+        text: confirmLabel,
+        style: destructive ? "destructive" : "default",
+        onPress: onConfirm,
+      },
     ]);
+  }
+
+  function scheduleUndo(visit: Visit, excludedIds: string[], message: string) {
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    setUndoInfo({ visit, excludedIds, message });
+    undoTimerRef.current = setTimeout(() => setUndoInfo(null), 5000);
+  }
+
+  function undoRemoval() {
+    if (!undoInfo) return;
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    unexcludePhotos(undoInfo.excludedIds);
+    upsertVisit(undoInfo.visit);
+    setVisits(listVisits());
+    setUndoInfo(null);
   }
 
   function removeVisit(visit: Visit) {
@@ -328,6 +418,7 @@ export default function JourneyScreen() {
         excludePhotos(visit.photoIds);
         deleteVisit(visit.id);
         setVisits(listVisits());
+        scheduleUndo(visit, visit.photoIds, `Removed ${visit.place.name}`);
       }
     );
   }
@@ -339,6 +430,7 @@ export default function JourneyScreen() {
       () => {
         removePhotoFromVisit(visit.id, photoId);
         setVisits(listVisits());
+        scheduleUndo(visit, [photoId], "Photo removed");
       }
     );
   }
@@ -491,6 +583,16 @@ export default function JourneyScreen() {
                 </TouchableOpacity>
               ) : null}
             </View>
+
+            {mergeCandidates.has(item.id) ? (
+              <TouchableOpacity
+                style={styles.mergeRow}
+                onPress={() => mergeWithNearby(item)}
+                accessibilityLabel={`Merge with nearby visit to ${item.place.name}`}
+              >
+                <Text style={styles.mergeText}>Merge with nearby visit</Text>
+              </TouchableOpacity>
+            ) : null}
           </GlassSurface>
           </Swipeable>
             </View>
@@ -585,6 +687,13 @@ export default function JourneyScreen() {
         thumbnails={thumbnails}
         onClose={() => setStoryVisitId(null)}
       />
+      {undoInfo ? (
+        <UndoToast
+          message={undoInfo.message}
+          onUndo={undoRemoval}
+          bottom={insets.bottom + TAB_BAR_HEIGHT + 90}
+        />
+      ) : null}
     </View>
   );
 }
@@ -712,6 +821,8 @@ const styles = StyleSheet.create({
   captionBadgeText: { fontSize: 11, fontWeight: "700", color: "#fff" },
   journalSlot: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginTop: 6 },
   journalFormSlot: { flex: 1 },
+  mergeRow: { marginTop: 8 },
+  mergeText: { fontSize: 13, fontWeight: "600", color: colors.accent },
   empty: { alignItems: "center", paddingTop: 60, paddingHorizontal: 32 },
   emptyIcon: { fontSize: 40, marginBottom: 12 },
   emptyText: { textAlign: "center", color: colors.textMuted, fontSize: 15, lineHeight: 22 },

@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import GlassSurface from "../components/GlassSurface";
 import type { Visit } from "../types";
-import { listVisits } from "../db/visitStore";
+import { listVisits, getExcludedPhotoIds, clearAllExcludedPhotos } from "../db/visitStore";
 import { colors, radii, TAB_BAR_HEIGHT } from "../theme";
 
 interface JourneyStats {
@@ -44,12 +44,38 @@ type MeScreenProps = {
 export default function MeScreen({ active }: MeScreenProps) {
   const insets = useSafeAreaInsets();
   const [visits, setVisits] = useState<Visit[]>(() => listVisits());
+  const [excludedCount, setExcludedCount] = useState(() => getExcludedPhotoIds().size);
 
   useEffect(() => {
-    if (active) setVisits(listVisits());
+    if (!active) return;
+    setVisits(listVisits());
+    setExcludedCount(getExcludedPhotoIds().size);
   }, [active]);
 
   const stats = useMemo(() => computeStats(visits), [visits]);
+
+  // Matches JourneyScreen's confirmDestructive - react-native-web's
+  // Alert.alert is a no-op there, so window.confirm is the equivalent.
+  function clearExclusions() {
+    const onConfirm = () => {
+      clearAllExcludedPhotos();
+      setExcludedCount(0);
+    };
+    if (Platform.OS === "web") {
+      if (window.confirm("Clear all exclusions? Removed visits/photos may reappear on your next scan.")) {
+        onConfirm();
+      }
+      return;
+    }
+    Alert.alert(
+      "Clear all exclusions?",
+      "Removed visits/photos may reappear on your next scan.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Clear", style: "destructive", onPress: onConfirm },
+      ]
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -117,6 +143,27 @@ export default function MeScreen({ active }: MeScreenProps) {
             ))
           )}
         </GlassSurface>
+
+        <GlassSurface
+          variant="tint"
+          tone="light"
+          radius={radii.lg}
+          shadowTier="card"
+          style={styles.section}
+          contentStyle={styles.sectionContent}
+        >
+          <Text style={styles.sectionTitle}>Excluded photos</Text>
+          <Text style={styles.emptyText}>
+            {excludedCount === 0
+              ? "None yet - removing a visit or photo excludes it from future scans."
+              : `${excludedCount} photo${excludedCount === 1 ? "" : "s"} won't be scanned into a visit again.`}
+          </Text>
+          {excludedCount > 0 ? (
+            <TouchableOpacity onPress={clearExclusions} accessibilityLabel="Clear all exclusions">
+              <Text style={styles.clearExclusionsText}>Clear all exclusions</Text>
+            </TouchableOpacity>
+          ) : null}
+        </GlassSurface>
       </ScrollView>
       <GlassSurface
         variant="real"
@@ -157,4 +204,5 @@ const styles = StyleSheet.create({
   tagName: { fontSize: 14, color: colors.text, textTransform: "capitalize" },
   tagCount: { fontSize: 14, color: colors.textMuted },
   emptyText: { fontSize: 13, color: colors.textMuted },
+  clearExclusionsText: { fontSize: 14, fontWeight: "700", color: colors.accent, marginTop: 4 },
 });
