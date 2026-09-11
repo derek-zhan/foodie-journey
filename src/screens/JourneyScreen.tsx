@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   Linking,
   Platform,
+  ActivityIndicator,
   type LayoutChangeEvent,
 } from "react-native";
 import { Image } from "expo-image";
@@ -25,6 +26,7 @@ import {
   getExcludedPhotoIds,
   deleteVisit,
   removePhotoFromVisit,
+  isJournaled,
 } from "../db/visitStore";
 import { extractPhotoMetadata } from "../pipeline/extractPhotoMetadata";
 import { clusterVisits } from "../pipeline/clusterVisits";
@@ -33,6 +35,7 @@ import { useAssetThumbnails } from "../hooks/useAssetThumbnails";
 import JournalForm from "../components/JournalForm";
 import RestaurantPicker from "../components/RestaurantPicker";
 import BrandIcon from "../components/BrandIcon";
+import ScanRangeSelector from "../components/ScanRangeSelector";
 import PhotoCaptionOverlay from "../components/PhotoCaptionOverlay";
 import StoryExportOverlay from "../components/StoryExportOverlay";
 import {
@@ -107,6 +110,14 @@ const DATE_RANGE_MS: Record<Exclude<DateRangePreset, "all">, number> = {
   month: 30 * 24 * 60 * 60 * 1000,
 };
 
+function isSameDate(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
 function applyFilters(visits: Visit[], filter: JourneyFilterState): Visit[] {
   const cutoff =
     filter.dateRange === "all" ? null : Date.now() - DATE_RANGE_MS[filter.dateRange];
@@ -134,6 +145,16 @@ export default function JourneyScreen() {
   const [chromeHeight, setChromeHeight] = useState(0);
   const [visits, setVisits] = useState<Visit[]>([]);
   const [loading, setLoading] = useState(false);
+  // Surfaced in the empty-state loading screen below so a stalled step
+  // (e.g. the OS photo-permission prompt never getting answered) is
+  // visibly stuck on a specific phase instead of an undifferentiated
+  // spinner that looks identical whether it's working or hung.
+  const [scanStatus, setScanStatus] = useState<string | null>(null);
+  const [scanRangeDays, setScanRangeDays] = useState(3);
+  // Set only via ScanRangeSelector's calendar - narrows both the scan
+  // window (runScanForDate) and the displayed list (filteredVisits below)
+  // to this single day. Cleared by picking the 3/7-day presets (runScan).
+  const [exactDate, setExactDate] = useState<Date | null>(null);
   const [captionVisitId, setCaptionVisitId] = useState<string | null>(null);
   const [storyVisitId, setStoryVisitId] = useState<string | null>(null);
   const [filter, setFilter] = useState<JourneyFilterState>(DEFAULT_FILTER_STATE);
@@ -146,7 +167,12 @@ export default function JourneyScreen() {
     return Array.from(set).sort();
   }, [visits]);
 
-  const filteredVisits = useMemo(() => applyFilters(visits, filter), [visits, filter]);
+  const filteredVisits = useMemo(() => {
+    const base = exactDate
+      ? visits.filter((v) => isSameDate(new Date(v.startedAt), exactDate))
+      : visits;
+    return applyFilters(base, filter);
+  }, [visits, filter, exactDate]);
 
   // An empty sections array (not a section with empty data) is required for
   // SectionList's ListEmptyComponent to actually render - a section object
@@ -181,16 +207,15 @@ export default function JourneyScreen() {
     runScan();
   }, []);
 
-  async function runScan() {
+  async function performScan(since: Date, until: Date) {
     setLoading(true);
     try {
-      const since = new Date();
-      since.setDate(since.getDate() - 3); // last 3 days for now
-      since.setHours(0, 0, 0, 0); // stable across repeated scans in the same day - see extractPhotoMetadata.ts's anchor comment
-
-      const photos = await extractPhotoMetadata(since);
+      setScanStatus("Reading photo library…");
+      const photos = await extractPhotoMetadata(since, until);
       const excluded = getExcludedPhotoIds();
       const eligible = photos.filter((p) => !excluded.has(p.id));
+
+      setScanStatus("Matching restaurants…");
       const detected = await clusterVisits(eligible);
 
       detected.forEach(upsertScannedVisit);
@@ -199,7 +224,33 @@ export default function JourneyScreen() {
       Alert.alert("Scan failed", err.message ?? String(err));
     } finally {
       setLoading(false);
+      setScanStatus(null);
     }
+  }
+
+  // `days` defaults to the current scanRangeDays state, but ScanRangeSelector
+  // passes its new value explicitly when the user changes the range -
+  // setScanRangeDays(n) then runScan() in the same handler would otherwise
+  // run against the pre-update value, since state updates aren't visible to
+  // a closure created before the re-render they cause.
+  function runScan(days: number = scanRangeDays) {
+    setExactDate(null);
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    since.setHours(0, 0, 0, 0); // stable across repeated scans in the same day - see extractPhotoMetadata.ts's anchor comment
+    return performScan(since, new Date());
+  }
+
+  // Scoped to the single calendar day the user picked in ScanRangeSelector -
+  // both the library scan (since/until bracket just that day) and the
+  // displayed list (filteredVisits below, keyed off exactDate) narrow to it,
+  // rather than the open-ended "since N days ago" the preset chips use.
+  function runScanForDate(date: Date) {
+    setExactDate(date);
+    const since = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const until = new Date(since);
+    until.setDate(until.getDate() + 1);
+    return performScan(since, until);
   }
 
   // react-native-web's Alert.alert is a no-op (no dialog, buttons never
@@ -259,7 +310,16 @@ export default function JourneyScreen() {
         renderSectionHeader={({ section }) =>
           section.title ? <Text style={styles.sectionHeader}>{section.title}</Text> : null
         }
-        renderItem={({ item }) => (
+        renderItem={({ item }) => {
+          const journaled = isJournaled(item);
+          return (
+          <View style={styles.timelineRow}>
+            <View style={styles.rail}>
+              <View style={styles.railLine} />
+              <View style={[styles.railDot, journaled && styles.railDotFilled]} />
+              <View style={styles.railLine} />
+            </View>
+            <View style={styles.timelineCard}>
           <Swipeable
             overshootRight={false}
             rightThreshold={56}
@@ -277,7 +337,7 @@ export default function JourneyScreen() {
           >
           <GlassSurface
             variant="tint"
-            tone="light"
+            tone={journaled ? "accent" : "light"}
             radius={radii.lg}
             shadowTier="card"
             style={styles.card}
@@ -381,9 +441,19 @@ export default function JourneyScreen() {
             </View>
           </GlassSurface>
           </Swipeable>
-        )}
+            </View>
+          </View>
+          );
+        }}
         ListEmptyComponent={
-          visits.length === 0 ? (
+          loading && visits.length === 0 ? (
+            <View style={styles.empty}>
+              <ActivityIndicator size="large" color={colors.accent} />
+              <Text style={[styles.emptyText, styles.emptyStatusText]}>
+                {scanStatus ?? "Scanning your photo library…"}
+              </Text>
+            </View>
+          ) : visits.length === 0 ? (
             <View style={styles.empty}>
               <Text style={styles.emptyIcon}>🍜</Text>
               <Text style={styles.emptyText}>
@@ -417,7 +487,18 @@ export default function JourneyScreen() {
         <View style={styles.headerTitleRow}>
           <View style={styles.headerTextBlock}>
             <Text style={styles.header}>Foodie Journey</Text>
-            <Text style={styles.subheader}>Your recent food adventures</Text>
+            <View style={styles.subheaderRow}>
+              <Text style={styles.subheader}>Your food adventures</Text>
+              <ScanRangeSelector
+                days={scanRangeDays}
+                exactDate={exactDate}
+                onApplyDays={(days) => {
+                  setScanRangeDays(days);
+                  runScan(days);
+                }}
+                onApplyDate={runScanForDate}
+              />
+            </View>
           </View>
           <JourneyFilterToggle
             sort={filter.sort}
@@ -468,10 +549,33 @@ const styles = StyleSheet.create({
   },
   headerTextBlock: { flexShrink: 1 },
   header: { fontSize: 30, fontWeight: "700", color: colors.text },
-  subheader: { fontSize: 14, color: colors.textMuted, marginTop: 2 },
+  subheaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 2,
+  },
+  subheader: { fontSize: 14, color: colors.textMuted },
   list: { flex: 1 },
   listContent: { paddingHorizontal: 20, paddingBottom: TAB_BAR_HEIGHT + 40 },
-  card: { marginBottom: 14 },
+  // The rail's two line segments stretch (flexbox default alignItems)
+  // to match this row's height, which is however tall the card ends up
+  // being - no manual measurement needed.
+  timelineRow: { flexDirection: "row", marginBottom: 14 },
+  rail: { width: 24, alignItems: "center" },
+  railLine: { width: 2, flex: 1, backgroundColor: colors.border },
+  railDot: {
+    width: 14,
+    height: 14,
+    borderRadius: radii.pill,
+    backgroundColor: colors.card,
+    borderWidth: 2,
+    borderColor: colors.border,
+  },
+  railDotFilled: { backgroundColor: colors.accent, borderColor: colors.accent },
+  timelineCard: { flex: 1 },
+  card: {},
   cardContent: { padding: 16, gap: 4 },
   placeHeaderRow: {
     flexDirection: "row",
@@ -499,7 +603,7 @@ const styles = StyleSheet.create({
   // Revealed by swiping a card left (react-native-gesture-handler's
   // ReanimatedSwipeable renderRightActions) - the ✕ button above stays as
   // a fallback for anyone who doesn't discover the gesture.
-  swipeActionsContainer: { width: 84, marginBottom: 14 },
+  swipeActionsContainer: { width: 84 },
   swipeActionButton: {
     flex: 1,
     backgroundColor: colors.danger,
@@ -559,6 +663,7 @@ const styles = StyleSheet.create({
   empty: { alignItems: "center", paddingTop: 60, paddingHorizontal: 32 },
   emptyIcon: { fontSize: 40, marginBottom: 12 },
   emptyText: { textAlign: "center", color: colors.textMuted, fontSize: 15, lineHeight: 22 },
+  emptyStatusText: { marginTop: 16 },
   emptyAction: {
     marginTop: 12,
     fontSize: 14,
