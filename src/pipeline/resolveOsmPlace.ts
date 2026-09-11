@@ -1,5 +1,6 @@
 import type { ResolvedPlace } from "../types";
 import { haversineMeters } from "./geo";
+import { fetchWithTimeout } from "./fetchWithTimeout";
 
 const RADIUS_METERS = 75; // same radius as the Google Places lookup
 
@@ -84,7 +85,7 @@ export async function searchOsmPlacesByText(
     `${longitude - delta},${latitude + delta},${longitude + delta},${latitude - delta}`
   );
 
-  const response = await fetch(url.toString(), {
+  const response = await fetchWithTimeout(url.toString(), {
     headers: {
       // Required by Nominatim's usage policy for identifying non-browser
       // clients - same convention as the Overpass call below.
@@ -134,7 +135,7 @@ async function fetchOsmCandidates(
     out center tags 10;
   `;
 
-  const response = await fetch("https://overpass-api.de/api/interpreter", {
+  const response = await fetchWithTimeout("https://overpass-api.de/api/interpreter", {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
