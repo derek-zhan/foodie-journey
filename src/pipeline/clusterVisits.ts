@@ -2,7 +2,10 @@ import type { PhotoAsset, ResolvedPlace, Visit } from "../types";
 import { haversineMeters } from "./geo";
 import { resolvePlace } from "./resolvePlace";
 
-const MAX_GAP_MINUTES = 90; // photos more than this apart are separate visits
+// Exported so JourneyScreen's "Merge with nearby visit" action can offer
+// merging two visits at the same place using this same threshold, instead
+// of a second, arbitrary "close enough to merge" number.
+export const MAX_GAP_MINUTES = 90; // photos more than this apart are separate visits
 const MAX_DISTANCE_METERS = 150; // photos further apart are separate visits
 
 function median(values: number[]): number {
