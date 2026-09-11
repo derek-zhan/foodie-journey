@@ -19,6 +19,42 @@ import type { PhotoAsset } from "../types";
 // configuration bug, not a possible runtime state.
 const isLocalWebDev = Platform.OS === "web" && __DEV__;
 
+// Thrown only for a hard denial (requestPermissionsAsync's status isn't
+// "granted"). Deliberately NOT thrown for iOS's Limited Photo Library mode
+// (accessPrivileges === "limited") - that's a normal, ongoing, legitimate
+// state (the app still gets whatever photos were picked), not a failure -
+// see getPhotoLibraryAccessLevel below for how JourneyScreen surfaces that
+// case without blocking/re-alerting on every scan.
+export class PhotoPermissionError extends Error {
+  constructor() {
+    super("Photo library permission not granted");
+    this.name = "PhotoPermissionError";
+  }
+}
+
+// One-off check (getPermissionsAsync, not requestPermissionsAsync - doesn't
+// prompt) so JourneyScreen can show a one-time "you've only granted limited
+// access" hint after a scan, instead of every scan re-throwing/re-alerting
+// for a state the user already deliberately chose. Returns undefined on web
+// (no native module) and on Android (accessPrivileges is iOS-only).
+export async function getPhotoLibraryAccessLevel(): Promise<
+  "all" | "limited" | "none" | undefined
+> {
+  if (isLocalWebDev || Platform.OS === "web") return undefined;
+  const MediaLibrary = await import("expo-media-library/legacy");
+  const { accessPrivileges } = await MediaLibrary.getPermissionsAsync();
+  return accessPrivileges;
+}
+
+// Opens iOS's native "Select More Photos…" picker so the user can widen a
+// Limited Photo Library grant without leaving the app - offered alongside
+// Settings in JourneyScreen's limited-access hint.
+export async function presentPhotoAccessPicker(): Promise<void> {
+  if (isLocalWebDev || Platform.OS === "web") return;
+  const MediaLibrary = await import("expo-media-library/legacy");
+  await MediaLibrary.presentPermissionsPickerAsync();
+}
+
 async function fetchTestPhotosFromDevProxy(since: Date): Promise<PhotoAsset[]> {
   const res = await fetch("/__test-photos");
   if (!res.ok) return [];
@@ -83,7 +119,7 @@ export async function extractPhotoMetadata(
   const MediaLibrary = await import("expo-media-library/legacy");
   const { status } = await MediaLibrary.requestPermissionsAsync();
   if (status !== "granted") {
-    throw new Error("Photo library permission not granted");
+    throw new PhotoPermissionError();
   }
 
   const results: PhotoAsset[] = [];

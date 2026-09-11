@@ -43,6 +43,18 @@ const JournalEntrySchema = z.object({
 
 export type JournalEntry = z.infer<typeof JournalEntrySchema>;
 
+// Distinguishable from any other failure so callers (JournalForm.tsx,
+// AskJourneyScreen.tsx via searchJourney.ts) can show a "set up your .env"
+// message instead of a raw exception - a likely first-run failure mode
+// since EXPO_PUBLIC_ANTHROPIC_API_KEY is checked lazily, not at startup
+// (see README/CLAUDE.md).
+export class MissingApiKeyError extends Error {
+  constructor() {
+    super("Missing EXPO_PUBLIC_ANTHROPIC_API_KEY");
+    this.name = "MissingApiKeyError";
+  }
+}
+
 /**
  * Stage 5: Voice journal structuring
  *
@@ -57,7 +69,7 @@ export async function journalVisit(
   placeName: string
 ): Promise<JournalEntry> {
   if (!process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY) {
-    throw new Error("Missing EXPO_PUBLIC_ANTHROPIC_API_KEY");
+    throw new MissingApiKeyError();
   }
 
   const response = await client.messages.parse({
