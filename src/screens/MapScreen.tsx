@@ -57,15 +57,20 @@ export default function MapScreen({ active }: MapScreenProps) {
   const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView>(null);
   const [visits, setVisits] = useState<Visit[]>(() => listVisits());
+  // App.tsx hides inactive tabs via `display: "none"` rather than
+  // unmounting them (see MapScreenProps comment), but react-native-maps'
+  // native MapView can lose its rendered marker layer while hidden and
+  // not reliably redraw it on return, even though `visits` below is
+  // correct the whole time - bumping this key forces a full native
+  // remount each time the tab reactivates, which sidesteps that instead
+  // of relying on the marker list alone to trigger a redraw.
+  const [mapKey, setMapKey] = useState(0);
 
   useEffect(() => {
     if (!active) return;
     const fresh = listVisits();
     setVisits(fresh);
-    // initialRegion only takes effect on MapView's first mount, so if this
-    // component mounted before initDb() finished (see MapScreenProps
-    // comment) the camera needs an explicit nudge once real data shows up.
-    mapRef.current?.animateToRegion(regionFromVisits(fresh), 400);
+    setMapKey((k) => k + 1);
   }, [active]);
 
   // Only the initial camera framing uses the recent-visits heuristic -
@@ -74,7 +79,12 @@ export default function MapScreen({ active }: MapScreenProps) {
 
   return (
     <View style={styles.container}>
-      <MapView ref={mapRef} style={StyleSheet.absoluteFill} initialRegion={initialRegion}>
+      <MapView
+        key={mapKey}
+        ref={mapRef}
+        style={StyleSheet.absoluteFill}
+        initialRegion={initialRegion}
+      >
         {visits.map((visit) => (
           <Marker
             key={visit.id}
