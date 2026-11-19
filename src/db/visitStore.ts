@@ -347,6 +347,57 @@ export function deleteVisit(visitId: string): void {
 }
 
 /**
+ * Combines two visits at the same place that a re-scan's 90-minute/150m
+ * clustering thresholds split into adjacent rows instead of one visit
+ * (JourneyScreen's "Merge with nearby visit" action) - distinct from the
+ * private mergeRescannedVisit above, which reconciles one incoming scan
+ * result against its own prior row, not two already-separate visits.
+ * `keep`'s id/place/notes/rating win on conflict (JourneyScreen only
+ * offers this when at most one side is journaled, so a real conflict
+ * shouldn't happen in practice); photoIds/tags union; startedAt/endedAt
+ * widen to cover both. Returns null if either id no longer exists (e.g.
+ * already merged/removed by a concurrent action).
+ */
+export function mergeVisits(keepId: string, mergeId: string): Visit | null {
+  if (!db) {
+    const keep = memoryVisits.get(keepId);
+    const merge = memoryVisits.get(mergeId);
+    if (!keep || !merge) return null;
+    const merged = combineVisits(keep, merge);
+    memoryVisits.delete(mergeId);
+    memoryVisits.set(keepId, merged);
+    return merged;
+  }
+
+  const keepRow = db.getFirstSync<any>(`SELECT * FROM visits WHERE id = ?;`, [keepId]);
+  const mergeRow = db.getFirstSync<any>(`SELECT * FROM visits WHERE id = ?;`, [mergeId]);
+  if (!keepRow || !mergeRow) return null;
+
+  const merged = combineVisits(rowToVisit(keepRow), rowToVisit(mergeRow));
+  db.withTransactionSync(() => {
+    db.runSync(`DELETE FROM visits WHERE id = ?;`, [mergeId]);
+    db.runSync(`DELETE FROM visits_fts WHERE visitId = ?;`, [mergeId]);
+    writeVisitRow(db, merged);
+  });
+  return merged;
+}
+
+function combineVisits(keep: Visit, merge: Visit): Visit {
+  return {
+    ...keep,
+    photoIds: Array.from(new Set([...keep.photoIds, ...merge.photoIds])),
+    tags: Array.from(new Set([...(keep.tags ?? []), ...(merge.tags ?? [])])),
+    notes: keep.notes ?? merge.notes,
+    rating: keep.rating ?? merge.rating,
+    transcript: keep.transcript ?? merge.transcript,
+    startedAt: Math.min(keep.startedAt, merge.startedAt),
+    endedAt: Math.max(keep.endedAt, merge.endedAt),
+    confirmed: keep.confirmed || merge.confirmed,
+    photoCaptions: { ...merge.photoCaptions, ...keep.photoCaptions },
+  };
+}
+
+/**
  * Removes a single photo from a visit (JourneyScreen: long-press a
  * thumbnail). Also excludes the photo (see excludePhotos below) so it
  * doesn't silently reform a visit - alone or combined with others - on a
@@ -405,6 +456,39 @@ export function excludePhotos(photoIds: string[]): void {
       db.runSync(`INSERT OR IGNORE INTO excluded_photos (photoId) VALUES (?);`, [id]);
     }
   });
+}
+
+/**
+ * Reverses excludePhotos - backs JourneyScreen's undo toast after removing a
+ * visit or photo. Paired with re-inserting the removed Visit row (a plain
+ * upsertVisit with the pre-removal snapshot the caller already has in hand,
+ * no dedicated "restore" function needed) to fully undo a removal.
+ */
+export function unexcludePhotos(photoIds: string[]): void {
+  if (!db) {
+    photoIds.forEach((id) => memoryExcludedPhotoIds.delete(id));
+    return;
+  }
+  db.withTransactionSync(() => {
+    for (const id of photoIds) {
+      db.runSync(`DELETE FROM excluded_photos WHERE photoId = ?;`, [id]);
+    }
+  });
+}
+
+/**
+ * Clears every excluded photo id at once - backs MeScreen's "Clear all
+ * exclusions" button, the exclusion-management surface for the (currently
+ * invisible-by-design) permanent blacklist excludePhotos builds up. A
+ * cleared photo can re-form a visit on the next scan, same as it could
+ * before it was ever excluded.
+ */
+export function clearAllExcludedPhotos(): void {
+  if (!db) {
+    memoryExcludedPhotoIds.clear();
+    return;
+  }
+  db.execSync(`DELETE FROM excluded_photos;`);
 }
 
 /**

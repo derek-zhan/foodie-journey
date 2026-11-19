@@ -15,7 +15,7 @@ import {
   searchPlacesByText,
   type PlaceCandidate,
 } from "../pipeline/resolvePlace";
-import { updateVisitPlace } from "../db/visitStore";
+import { updateVisitPlace, upsertVisit } from "../db/visitStore";
 import { colors, radii } from "../theme";
 import AppButton from "./AppButton";
 
@@ -78,6 +78,18 @@ export default function RestaurantPicker({ visit, onSaved }: Props) {
     onSaved(updated);
   }
 
+  // Distinct from choose() above: correcting the restaurant already implies
+  // confirmation (updateVisitPlace sets it), but there was previously no way
+  // to confirm a visit the auto-detection got right without also having to
+  // "correct" it to the same place. One-directional - already-confirmed
+  // visits don't need an unconfirm path.
+  function confirm() {
+    if (visit.confirmed) return;
+    const updated: Visit = { ...visit, confirmed: true };
+    upsertVisit(updated);
+    onSaved(updated);
+  }
+
   async function runTextSearch() {
     if (!queryDraft.trim()) return;
     setSearching(true);
@@ -101,10 +113,22 @@ export default function RestaurantPicker({ visit, onSaved }: Props) {
 
   return (
     <>
-      <TouchableOpacity onPress={open} style={styles.placeRow}>
-        <Text style={styles.place}>{visit.place.name}</Text>
-        <Text style={styles.editHint}>✎</Text>
-      </TouchableOpacity>
+      <View style={styles.placeRow}>
+        <TouchableOpacity onPress={open} style={styles.placeNameTouchable}>
+          <Text style={styles.place}>{visit.place.name}</Text>
+          <Text style={styles.editHint}>✎</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={confirm}
+          disabled={visit.confirmed}
+          style={[styles.confirmButton, visit.confirmed && styles.confirmButtonActive]}
+          accessibilityLabel={visit.confirmed ? "Visit confirmed" : "Confirm this visit"}
+        >
+          <Text style={[styles.confirmIcon, visit.confirmed && styles.confirmIconActive]}>
+            ✓
+          </Text>
+        </TouchableOpacity>
+      </View>
 
       <Modal
         visible={expanded}
@@ -172,9 +196,22 @@ export default function RestaurantPicker({ visit, onSaved }: Props) {
 }
 
 const styles = StyleSheet.create({
-  placeRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  placeRow: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1 },
+  placeNameTouchable: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1 },
   place: { fontSize: 17, fontWeight: "700", color: colors.text },
   editHint: { fontSize: 12, color: colors.textFaint },
+  confirmButton: {
+    width: 22,
+    height: 22,
+    borderRadius: radii.pill,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confirmButtonActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  confirmIcon: { fontSize: 12, fontWeight: "700", color: colors.textFaint },
+  confirmIconActive: { color: "#fff" },
   backdrop: {
     flex: 1,
     backgroundColor: colors.overlay,
