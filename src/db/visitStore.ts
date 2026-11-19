@@ -108,8 +108,10 @@ function searchableText(visit: Visit): string {
 // "Journaled" = has notes OR tags. journalVisit's output schema doesn't
 // require non-empty notes (a response could carry tags with no notes
 // text), so gating on notes alone would silently drop a journaled-but-
-// notes-less visit from the search index.
-function isJournaled(visit: Visit): boolean {
+// notes-less visit from the search index. Exported so JourneyScreen can
+// key its timeline-rail "confirmed" color off the exact same predicate
+// instead of re-deriving it.
+export function isJournaled(visit: Visit): boolean {
   return Boolean(visit.notes || visit.tags?.length);
 }
 

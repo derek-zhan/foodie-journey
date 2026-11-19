@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import {
   View,
   Modal,
@@ -19,15 +19,19 @@ import BottomTabBar, { type TabKey } from "./src/components/BottomTabBar";
 import { initDb } from "./src/db/visitStore";
 import { colors, glass, radii, TAB_BAR_HEIGHT } from "./src/theme";
 
+// Runs at module load, synchronously, before any component (including
+// JourneyScreen) mounts. Must NOT be in a useEffect here: React fires a
+// child's mount effects before its parent's, and JourneyScreen's own
+// mount effect queries the visits table immediately (runScan) - an
+// initDb() called from this component's useEffect would race it and lose
+// every time, not just occasionally, throwing "no such table: visits".
+initDb();
+
 function AppContent() {
   const [askVisible, setAskVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("timeline");
   const insets = useSafeAreaInsets();
   const fabBottom = insets.bottom + TAB_BAR_HEIGHT + 16;
-
-  useEffect(() => {
-    initDb();
-  }, []);
 
   return (
     <View style={styles.root}>
