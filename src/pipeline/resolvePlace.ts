@@ -1,5 +1,6 @@
 import type { ResolvedPlace } from "../types";
 import { haversineMeters } from "./geo";
+import { fetchWithTimeout } from "./fetchWithTimeout";
 import {
   resolveOsmPlace,
   searchNearbyOsmPlaces,
@@ -123,7 +124,7 @@ async function fetchNearbyCandidates(
     "https://places.googleapis.com/v1/places:searchNearby"
   );
 
-  const response = await fetch(url.toString(), {
+  const response = await fetchWithTimeout(url.toString(), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -194,7 +195,7 @@ async function searchGoogleText(
   latitude: number,
   longitude: number
 ): Promise<PlaceCandidate[]> {
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     "https://places.googleapis.com/v1/places:searchText",
     {
       method: "POST",

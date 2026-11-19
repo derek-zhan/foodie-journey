@@ -115,11 +115,22 @@ export function isJournaled(visit: Visit): boolean {
   return Boolean(visit.notes || visit.tags?.length);
 }
 
+// Visit ids are `${placeId}-${startedAt}` - split on the LAST hyphen, not
+// the first. Google Place IDs routinely contain hyphens themselves (e.g.
+// "ChIJrTLr-GyuEmsRBfy61i59si0"), while startedAt is always a plain numeric
+// ms epoch and OSM's own placeIds ("osm_<type>_<id>", see resolveOsmPlace.ts)
+// are underscore-only - so the timestamp suffix is reliably the last
+// hyphen-delimited segment.
+function placeIdFromVisitId(id: string): string {
+  const sep = id.lastIndexOf("-");
+  return sep === -1 ? id : id.slice(0, sep);
+}
+
 function rowToVisit(row: any): Visit {
   return {
     id: row.id,
     place: {
-      placeId: row.id.split("-")[0],
+      placeId: placeIdFromVisitId(row.id),
       name: row.placeName,
       address: row.address,
       latitude: row.latitude,

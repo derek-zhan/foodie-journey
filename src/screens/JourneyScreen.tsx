@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -207,7 +207,15 @@ export default function JourneyScreen() {
     runScan();
   }, []);
 
+  // Guards against overlapping scans (rapid pull-to-refresh, or changing the
+  // scan range while one is already in flight) - every scan still writes to
+  // the DB (harmless/idempotent via upsertScannedVisit's merge), but only
+  // the most recently *started* scan is allowed to update UI state, so a
+  // slower older response can't land after a newer one and clobber it.
+  const scanIdRef = useRef(0);
+
   async function performScan(since: Date, until: Date) {
+    const scanId = ++scanIdRef.current;
     setLoading(true);
     try {
       setScanStatus("Reading photo library…");
@@ -219,12 +227,16 @@ export default function JourneyScreen() {
       const detected = await clusterVisits(eligible);
 
       detected.forEach(upsertScannedVisit);
-      setVisits(listVisits());
+      if (scanId === scanIdRef.current) setVisits(listVisits());
     } catch (err: any) {
-      Alert.alert("Scan failed", err.message ?? String(err));
+      if (scanId === scanIdRef.current) {
+        Alert.alert("Scan failed", err.message ?? String(err));
+      }
     } finally {
-      setLoading(false);
-      setScanStatus(null);
+      if (scanId === scanIdRef.current) {
+        setLoading(false);
+        setScanStatus(null);
+      }
     }
   }
 
