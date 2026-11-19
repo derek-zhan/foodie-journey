@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { searchVisits } from "../db/visitStore";
+import { searchVisits, listVisits, isJournaled } from "../db/visitStore";
+import { MissingApiKeyError } from "../pipeline/journalVisit";
 import type { Visit } from "../types";
 
 // Same client-bundling caveat as journalVisit.ts / resolvePlace.ts, and the
@@ -37,11 +38,19 @@ export function findRelevantVisits(query: string): Visit[] {
 export async function askJourney(query: string): Promise<JourneyAnswer> {
   const sources = findRelevantVisits(query);
   if (sources.length === 0) {
-    return {
-      answer:
-        "No journaled visits yet to search - add a journal entry to a visit first.",
-      sources: [],
-    };
+    // Two distinct cases that used to share one message: having zero
+    // journaled visits at all (add one first) vs. having some but none
+    // matching this particular query (try different words) - conflating
+    // them made a legitimate "no results for this search" look like the
+    // user hadn't journaled anything yet.
+    const answer = listVisits().some(isJournaled)
+      ? "No journaled visits match that - try different words."
+      : "No journaled visits yet to search - add a journal entry to a visit first.";
+    return { answer, sources: [] };
+  }
+
+  if (!process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY) {
+    throw new MissingApiKeyError();
   }
 
   const context = sources

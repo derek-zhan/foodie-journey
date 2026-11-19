@@ -28,7 +28,12 @@ import {
   removePhotoFromVisit,
   isJournaled,
 } from "../db/visitStore";
-import { extractPhotoMetadata } from "../pipeline/extractPhotoMetadata";
+import {
+  extractPhotoMetadata,
+  getPhotoLibraryAccessLevel,
+  presentPhotoAccessPicker,
+  PhotoPermissionError,
+} from "../pipeline/extractPhotoMetadata";
 import { clusterVisits } from "../pipeline/clusterVisits";
 import { buildReviewLinks } from "../pipeline/reviewLinks";
 import { useAssetThumbnails } from "../hooks/useAssetThumbnails";
@@ -214,12 +219,36 @@ export default function JourneyScreen() {
   // slower older response can't land after a newer one and clobber it.
   const scanIdRef = useRef(0);
 
+  // Shown at most once per app session - Limited Photo Library access is a
+  // legitimate, ongoing state the user deliberately chose (see
+  // extractPhotoMetadata.ts's PhotoPermissionError comment), not an error to
+  // re-alert on every scan/pull-to-refresh.
+  const hasWarnedLimitedAccessRef = useRef(false);
+
+  function maybeWarnLimitedAccess() {
+    if (hasWarnedLimitedAccessRef.current) return;
+    getPhotoLibraryAccessLevel().then((level) => {
+      if (level !== "limited" || hasWarnedLimitedAccessRef.current) return;
+      hasWarnedLimitedAccessRef.current = true;
+      Alert.alert(
+        "Limited photo access",
+        "You've only given Foodie Journey access to some photos, so a scan may miss visits.",
+        [
+          { text: "Manage Photos", onPress: () => presentPhotoAccessPicker() },
+          { text: "Open Settings", onPress: () => Linking.openSettings() },
+          { text: "OK", style: "cancel" },
+        ]
+      );
+    });
+  }
+
   async function performScan(since: Date, until: Date) {
     const scanId = ++scanIdRef.current;
     setLoading(true);
     try {
       setScanStatus("Reading photo library…");
       const photos = await extractPhotoMetadata(since, until);
+      maybeWarnLimitedAccess();
       const excluded = getExcludedPhotoIds();
       const eligible = photos.filter((p) => !excluded.has(p.id));
 
@@ -230,7 +259,18 @@ export default function JourneyScreen() {
       if (scanId === scanIdRef.current) setVisits(listVisits());
     } catch (err: any) {
       if (scanId === scanIdRef.current) {
-        Alert.alert("Scan failed", err.message ?? String(err));
+        if (err instanceof PhotoPermissionError) {
+          Alert.alert(
+            "Photo access needed",
+            "Foodie Journey needs photo library access to scan your visits.",
+            [
+              { text: "Open Settings", onPress: () => Linking.openSettings() },
+              { text: "Cancel", style: "cancel" },
+            ]
+          );
+        } else {
+          Alert.alert("Scan failed", err.message ?? String(err));
+        }
       }
     } finally {
       if (scanId === scanIdRef.current) {

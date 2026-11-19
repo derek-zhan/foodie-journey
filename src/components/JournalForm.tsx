@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { View, Alert, TextInput, StyleSheet } from "react-native";
 import type { Visit } from "../types";
 import { upsertVisit } from "../db/visitStore";
-import { journalVisit } from "../pipeline/journalVisit";
+import { journalVisit, MissingApiKeyError } from "../pipeline/journalVisit";
 import { colors, radii } from "../theme";
 import AppButton from "./AppButton";
 
@@ -44,7 +44,14 @@ export default function JournalForm({ visit, onSaved }: Props) {
       setJournaling(false);
       onSaved(updated);
     } catch (err: any) {
-      Alert.alert("Journal failed", err.message ?? String(err));
+      if (err instanceof MissingApiKeyError) {
+        Alert.alert(
+          "API key needed",
+          "Add EXPO_PUBLIC_ANTHROPIC_API_KEY to your .env file and restart Expo to enable journaling."
+        );
+      } else {
+        Alert.alert("Journal failed", err.message ?? String(err));
+      }
     } finally {
       setSaving(false);
     }

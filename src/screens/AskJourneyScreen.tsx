@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import type { Visit } from "../types";
 import { askJourney } from "../rag/searchJourney";
+import { MissingApiKeyError } from "../pipeline/journalVisit";
 import { colors, radii, shadow } from "../theme";
 
 export default function AskJourneyScreen() {
@@ -28,7 +29,13 @@ export default function AskJourneyScreen() {
       setAnswer(result.answer);
       setSources(result.sources);
     } catch (err: any) {
-      setAnswer(`Something went wrong: ${err.message ?? String(err)}`);
+      if (err instanceof MissingApiKeyError) {
+        setAnswer(
+          "Add EXPO_PUBLIC_ANTHROPIC_API_KEY to your .env file and restart Expo to enable Ask Journey."
+        );
+      } else {
+        setAnswer(`Something went wrong: ${err.message ?? String(err)}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -38,7 +45,8 @@ export default function AskJourneyScreen() {
     <View style={styles.container}>
       <Text style={styles.header}>Ask your journey</Text>
       <Text style={styles.hint}>
-        Retrieval-augmented search over your journaled visits.
+        Searches your journaled visits only - add a journal entry to a visit
+        from the Timeline tab to make it searchable here.
       </Text>
       <View style={styles.searchBar}>
         <TextInput
