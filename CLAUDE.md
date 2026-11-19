@@ -184,10 +184,14 @@ costing real time to track down after the fact.
 
 ## Working in this codebase
 
-- Expo APIs move fast between major versions — **read
-  https://docs.expo.dev/versions/v57.0.0/ before writing Expo-related code**
-  rather than relying on training data (this is the point of the
-  `@AGENTS.md` import above).
+- Use the Architecture section above as the map of the codebase. Only open
+  the files a change actually touches, plus their direct callers/callees —
+  don't explore the whole codebase up front before implementing a feature.
+  If the map turns out to be wrong or stale, fix it here.
+- Expo APIs move fast between major versions — **check the relevant page of
+  https://docs.expo.dev/versions/v57.0.0/ before using or changing an Expo
+  API** rather than relying on training data (this is the point of the
+  `@AGENTS.md` import above). Not needed for non-Expo changes.
 - `tsconfig.json` has `strict: true` — keep new code strict-clean.
 - Never commit a real Google Places API key; `.env` is gitignored, only
   `.env.example` should be tracked.
